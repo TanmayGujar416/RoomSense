@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>RoomSense — BLE Smoke Test</title>
+  <style>
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      padding: 2rem;
+      max-width: 480px;
+      margin: 0 auto;
+      text-align: center;
+    }
+    button {
+      font-size: 1.1rem;
+      padding: 0.8rem 1.6rem;
+      border-radius: 8px;
+      border: 1px solid #ccc;
+      background: #0066cc;
+      color: white;
+      cursor: pointer;
+      margin-top: 1.5rem;
+    }
+    #status {
+      margin-top: 1.5rem;
+      padding: 1rem;
+      background: #f4f4f4;
+      border-radius: 6px;
+      font-family: monospace;
+      font-size: 0.95rem;
+    }
+  </style>
+</head>
+<body>
+  <h2>RoomSense BLE Test</h2>
+  <p>Task 0: Verify Web Bluetooth and HTTPS connection.</p>
+  
+  <button id="bleBtn">Test BLE Chooser</button>
+  
+  <div id="status">Status: Waiting for button click...</div>
+
+  <script>
+    const btn = document.getElementById('bleBtn');
+    const statusDiv = document.getElementById('status');
+
+    btn.addEventListener('click', async () => {
+      // 1. Check if the browser supports Web Bluetooth
+      if (!navigator.bluetooth) {
+        statusDiv.textContent = "Error: Web Bluetooth is not supported on this browser or platform.";
+        return;
+      }
+
+      statusDiv.textContent = "Requesting Bluetooth device...";
+
+      try {
+        // 2. Trigger the browser's native chooser dialog
+        const device = await navigator.bluetooth.requestDevice({
+          acceptAllDevices: true
+        });
+
+        statusDiv.textContent = `Success! Selected device: ${device.name || "Unnamed device"} (${device.id})`;
+      } catch (err) {
+        // User cancelled or Bluetooth was turned off
+        statusDiv.textContent = `Result: ${err.message}`;
+      }
+    });
+  </script>
+</body>
+</html>
