@@ -216,20 +216,40 @@
     });
 
     btnSurvey.addEventListener('click', async () => {
-      if (!commandChar) return;
+      if (!commandChar) {
+        log("[ERR] Not connected to command characteristic.");
+        return;
+      }
       const zone = document.getElementById('zoneInput').value.trim() || 'kitchen';
       const n = document.getElementById('scansInput').value || 5;
       const cmd = `ZONE ${zone} ${n}`;
       const encoder = new TextEncoder();
-      await commandChar.writeValue(encoder.encode(cmd));
-      log(`Sent: ${cmd}`);
+      try {
+        log(`Sending: ${cmd}...`);
+        if (commandChar.writeValueWithResponse) {
+          await commandChar.writeValueWithResponse(encoder.encode(cmd));
+        } else {
+          await commandChar.writeValue(encoder.encode(cmd));
+        }
+        log(`Sent: ${cmd}`);
+      } catch (err) {
+        log(`[ERR Send Failed]: ${err.message}`);
+      }
     });
 
     btnStop.addEventListener('click', async () => {
       if (!commandChar) return;
       const encoder = new TextEncoder();
-      await commandChar.writeValue(encoder.encode("STOP"));
-      log("Sent: STOP");
+      try {
+        if (commandChar.writeValueWithResponse) {
+          await commandChar.writeValueWithResponse(encoder.encode("STOP"));
+        } else {
+          await commandChar.writeValue(encoder.encode("STOP"));
+        }
+        log("Sent: STOP");
+      } catch (err) {
+        log(`[ERR Stop Failed]: ${err.message}`);
+      }
     });
   </script>
 </body>

@@ -60,9 +60,15 @@ String calculateXORChecksum(const String& payload) {
   return String(hexBuf);
 }
 
+// Helper: Check if client is actually connected
+bool isClientConnected() {
+  if (pServer != nullptr && pServer->getConnectedCount() > 0) return true;
+  return deviceConnected;
+}
+
 // --- Helper: Send String in <= 20 Byte Chunks Over BLE Notify ---
 void sendBLEChunked(const String& line) {
-  if (!deviceConnected || pStreamChar == nullptr) return;
+  if (pStreamChar == nullptr || !isClientConnected()) return;
 
   const size_t CHUNK_SIZE = 20;
   size_t len = line.length();
@@ -80,9 +86,19 @@ void sendBLEChunked(const String& line) {
 
 // --- BLE Callbacks ---
 class ServerCallbacks : public NimBLEServerCallbacks {
+  // NimBLE 1.x signature
   void onConnect(NimBLEServer* pServer) {
     deviceConnected = true;
-    Serial.println("[BLE] Phone connected");
+    Serial.println("[BLE] Phone connected (v1 callback)");
+    digitalWrite(PIN_LED, HIGH);
+    delay(100);
+    digitalWrite(PIN_LED, LOW);
+  }
+
+  // NimBLE 2.x signature
+  void onConnect(NimBLEServer* pServer, NimBLEConnInfo& connInfo) {
+    deviceConnected = true;
+    Serial.println("[BLE] Phone connected (v2 callback)");
     digitalWrite(PIN_LED, HIGH);
     delay(100);
     digitalWrite(PIN_LED, LOW);
@@ -95,18 +111,30 @@ class ServerCallbacks : public NimBLEServerCallbacks {
     Serial.println("[BLE] Phone disconnected, restarting advertising");
     NimBLEDevice::startAdvertising();
   }
+
+  void onDisconnect(NimBLEServer* pServer, NimBLEConnInfo& connInfo, int reason) {
+    deviceConnected = false;
+    jobPending = false;
+    trackMode = false;
+    Serial.println("[BLE] Phone disconnected, restarting advertising");
+    NimBLEDevice::startAdvertising();
+  }
 };
 
 class CommandCallbacks : public NimBLECharacteristicCallbacks {
   void onWrite(NimBLECharacteristic* pCharacteristic) {
+    deviceConnected = true; // If a write was received, device is definitely connected!
     std::string rxVal = pCharacteristic->getValue();
     if (rxVal.empty()) return;
 
     String cmd = String(rxVal.c_str());
     cmd.trim();
-    Serial.printf("[BLE CMD] %s\n", cmd.c_str());
+    Serial.printf("[BLE CMD] Received: '%s'\n", cmd.c_str());
 
-    if (cmd.startsWith("ZONE ")) {
+    String upperCmd = cmd;
+    upperCmd.toUpperCase();
+
+    if (upperCmd.startsWith("ZONE ")) {
       // Format: ZONE <zone_name> <n_scans>
       int firstSpace = cmd.indexOf(' ');
       int secondSpace = cmd.indexOf(' ', firstSpace + 1);
@@ -120,18 +148,20 @@ class CommandCallbacks : public NimBLECharacteristicCallbacks {
           currentScanIndex = 0;
           trackMode = false;
           jobPending = true;
+          Serial.printf("[BLE CMD] Accepted ZONE job: '%s', count: %d\n", currentZone, targetScans);
         }
       }
-    } else if (cmd == "TRACK ON") {
+    } else if (upperCmd == "TRACK ON") {
       trackMode = true;
       jobPending = true;
       strncpy(currentZone, "track", sizeof(currentZone));
       currentScanIndex = 0;
-    } else if (cmd == "TRACK OFF" || cmd == "STOP") {
+      Serial.println("[BLE CMD] TRACK ON enabled");
+    } else if (upperCmd == "TRACK OFF" || upperCmd == "STOP") {
       trackMode = false;
       jobPending = false;
-      Serial.println("[BLE] Stopped by client");
-    } else if (cmd == "STATUS") {
+      Serial.println("[BLE CMD] Stopped by client");
+    } else if (upperCmd == "STATUS") {
       String statusLine = "STATUS ready\n";
       sendBLEChunked(statusLine);
     }
@@ -230,7 +260,7 @@ void setup() {
 }
 
 void loop() {
-  if (jobPending && deviceConnected) {
+  if (jobPending && isClientConnected()) {
     if (trackMode) {
       // Continuous tracking mode
       performScanAndStream("track", currentScanIndex++);
