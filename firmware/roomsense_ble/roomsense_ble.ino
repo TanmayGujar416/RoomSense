@@ -189,7 +189,7 @@ void setup() {
   delay(100);
 
   // Initialize NimBLE
-  NimBLEDevice::init("RoomSense-ESP32");
+  NimBLEDevice::init("RoomSense");
   NimBLEDevice::setPower(ESP_PWR_LVL_P9); // Max TX power for good range
 
   pServer = NimBLEDevice::createServer();
@@ -212,13 +212,21 @@ void setup() {
 
   pService->start();
 
-  // Start Advertising
+  // Explicitly separate Advertisement and Scan Response to respect the 31-byte BLE limit
   NimBLEAdvertising* pAdvertising = NimBLEDevice::getAdvertising();
-  pAdvertising->addServiceUUID(SERVICE_UUID);
+
+  NimBLEAdvertisementData advData;
+  advData.setFlags(0x06); // General Discoverable + BR/EDR Not Supported
+  advData.setName("RoomSense");
+  pAdvertising->setAdvertisementData(advData);
+
+  NimBLEAdvertisementData scanData;
+  scanData.setCompleteServices(NimBLEUUID(SERVICE_UUID));
+  pAdvertising->setScanResponseData(scanData);
   pAdvertising->enableScanResponse(true);
   pAdvertising->start();
 
-  Serial.println("[RoomSense] BLE advertising started: 'RoomSense-ESP32'");
+  Serial.println("[RoomSense] BLE advertising started: 'RoomSense'");
 }
 
 void loop() {
