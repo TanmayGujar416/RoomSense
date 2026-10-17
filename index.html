@@ -93,6 +93,16 @@
   </div>
 
   <div class="card">
+    <div style="font-weight: 600; margin-bottom: 0.5rem;">Continuous Live Tracking (Task 1C):</div>
+    <button id="btnTrackOn" disabled style="background: #2b6cb0;">TRACK ON</button>
+    <button id="btnTrackOff" disabled class="danger">TRACK OFF</button>
+    <span id="trackBadge" class="badge yellow">Tracking Off</span>
+    <div style="margin-top: 0.5rem; font-size: 0.9rem;">
+      Continuous Scans Received: <span id="cntTrackScans">0</span>
+    </div>
+  </div>
+
+  <div class="card">
     <strong>Session Metrics:</strong>
     <div>Current Zone Valid Scans: <span id="cntZoneValid">0</span> / <span id="cntZoneTarget">0</span></div>
     <div>Total Valid Scans: <span id="cntTotalValid">0</span> | Dropped / Corrupted: <span id="cntDropped">0</span></div>
@@ -115,10 +125,13 @@
     let activeZone = "";
     let activeTarget = 0;
     let activeZoneValid = 0;
+    let trackScanCount = 0;
 
     const logEl = document.getElementById('log');
     const connStatus = document.getElementById('connStatus');
     const flashStatus = document.getElementById('flashStatus');
+    const trackBadge = document.getElementById('trackBadge');
+    const cntTrackScans = document.getElementById('cntTrackScans');
     const btnConnect = document.getElementById('btnConnect');
     const btnDisconnect = document.getElementById('btnDisconnect');
     const btnStatus = document.getElementById('btnStatus');
@@ -126,6 +139,8 @@
     const btnSetSession = document.getElementById('btnSetSession');
     const btnSurvey = document.getElementById('btnSurvey');
     const btnStop = document.getElementById('btnStop');
+    const btnTrackOn = document.getElementById('btnTrackOn');
+    const btnTrackOff = document.getElementById('btnTrackOff');
     const chkSimulateDrop = document.getElementById('chkSimulateDrop');
     const cntZoneValid = document.getElementById('cntZoneValid');
     const cntZoneTarget = document.getElementById('cntZoneTarget');
@@ -199,14 +214,21 @@
 
         if (expectedChk === actualChk) {
           totalValid++;
-          activeZoneValid++;
           cntTotalValid.textContent = totalValid;
-          cntZoneValid.textContent = activeZoneValid;
           const parts = payload.split(" ");
           const zone = parts[1];
           const scanId = parts[2];
           const apCount = parts[3];
-          log(`[VALID] ${zone} #${scanId} (${apCount} APs, chk: ${actualChk} OK)`);
+
+          if (zone === "track") {
+            trackScanCount++;
+            cntTrackScans.textContent = trackScanCount;
+            log(`[LIVE TRACK] #${scanId} (${apCount} APs, chk: ${actualChk} OK)`);
+          } else {
+            activeZoneValid++;
+            cntZoneValid.textContent = activeZoneValid;
+            log(`[VALID] ${zone} #${scanId} (${apCount} APs, chk: ${actualChk} OK)`);
+          }
         } else {
           droppedCount++;
           cntDropped.textContent = droppedCount;
@@ -269,6 +291,8 @@
         btnSetSession.disabled = false;
         btnSurvey.disabled = false;
         btnStop.disabled = false;
+        btnTrackOn.disabled = false;
+        btnTrackOff.disabled = true;
         log("Connected! Requesting board status...");
         sendCommand("STATUS");
       } catch (err) {
@@ -288,6 +312,10 @@
       btnSetSession.disabled = true;
       btnSurvey.disabled = true;
       btnStop.disabled = true;
+      btnTrackOn.disabled = true;
+      btnTrackOff.disabled = true;
+      trackBadge.textContent = "Tracking Off";
+      trackBadge.className = "badge yellow";
       log("ESP32 disconnected.");
     }
 
@@ -326,6 +354,28 @@
     btnStop.addEventListener('click', async () => {
       activeTarget = 0;
       await sendCommand("STOP");
+    });
+
+    btnTrackOn.addEventListener('click', async () => {
+      trackScanCount = 0;
+      cntTrackScans.textContent = "0";
+      await sendCommand("TRACK ON");
+      trackBadge.textContent = "Tracking ON";
+      trackBadge.className = "badge green";
+      btnTrackOn.disabled = true;
+      btnTrackOff.disabled = false;
+      btnSurvey.disabled = true;
+      log("[TRACK] Continuous scanning started. Scans will stream every ~2s.");
+    });
+
+    btnTrackOff.addEventListener('click', async () => {
+      await sendCommand("TRACK OFF");
+      trackBadge.textContent = "Tracking Off";
+      trackBadge.className = "badge yellow";
+      btnTrackOn.disabled = false;
+      btnTrackOff.disabled = true;
+      btnSurvey.disabled = false;
+      log("[TRACK] Continuous scanning stopped (current scan finishes in ~2s).");
     });
   </script>
 </body>
