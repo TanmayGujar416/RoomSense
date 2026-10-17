@@ -166,9 +166,10 @@
 
     btnConnect.addEventListener('click', async () => {
       try {
-        log("Searching for 'RoomSense-ESP32'...");
+        log("Opening Bluetooth picker...");
         bleDevice = await navigator.bluetooth.requestDevice({
-          filters: [{ name: 'RoomSense-ESP32' }],
+          // Accept any device or filter by RoomSense service
+          acceptAllDevices: true,
           optionalServices: [SERVICE_UUID]
         });
 
