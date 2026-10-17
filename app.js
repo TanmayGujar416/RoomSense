@@ -305,13 +305,16 @@ async function processCompletedLine(line) {
 
     apPairs.forEach(pair => {
       const [bssid, rssiStr] = pair.split(",");
-      if (bssid && rssiStr) {
+      const cleanBSSID = bssid ? bssid.trim().toLowerCase() : "";
+      const rssi = parseInt(rssiStr, 10);
+      // Validate BSSID is 12 hex chars and valid RSSI
+      if (/^[0-9a-f]{12}$/.test(cleanBSSID) && cleanBSSID !== "000000000000" && !isNaN(rssi)) {
         dbRecords.push({
           session: currentSession,
           zone: zone,
           scan_id: scanId,
-          bssid: bssid.toLowerCase(),
-          rssi: parseInt(rssiStr, 10),
+          bssid: cleanBSSID,
+          rssi: rssi,
           timestamp: timestamp
         });
       }
