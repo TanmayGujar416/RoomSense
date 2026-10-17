@@ -2,381 +2,87 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>RoomSense — Task 1B Dashboard</title>
-  <style>
-    body {
-      font-family: system-ui, -apple-system, sans-serif;
-      padding: 1.5rem;
-      max-width: 600px;
-      margin: 0 auto;
-    }
-    h2 { margin-bottom: 0.2rem; }
-    p.sub { color: #555; margin-top: 0; font-size: 0.9rem; }
-    .card {
-      background: #f8f9fa;
-      border: 1px solid #e2e8f0;
-      border-radius: 8px;
-      padding: 1rem;
-      margin-bottom: 1rem;
-    }
-    button {
-      font-size: 0.95rem;
-      padding: 0.5rem 1rem;
-      border-radius: 6px;
-      border: none;
-      background: #0066cc;
-      color: white;
-      cursor: pointer;
-      margin-right: 0.5rem;
-      margin-bottom: 0.5rem;
-    }
-    button:disabled { background: #a0aec0; cursor: not-allowed; }
-    button.secondary { background: #4a5568; }
-    button.danger { background: #e53e3e; }
-    #log {
-      height: 280px;
-      overflow-y: auto;
-      background: #1a202c;
-      color: #e2e8f0;
-      font-family: monospace;
-      font-size: 0.82rem;
-      padding: 0.8rem;
-      border-radius: 6px;
-      white-space: pre-wrap;
-      word-break: break-all;
-    }
-    .badge {
-      display: inline-block;
-      padding: 0.2rem 0.5rem;
-      border-radius: 4px;
-      font-size: 0.8rem;
-      font-weight: 600;
-    }
-    .badge.green { background: #c6f6d5; color: #22543d; }
-    .badge.red { background: #fed7d7; color: #742a2a; }
-    .badge.yellow { background: #feebc8; color: #7b341e; }
-    .row { margin-bottom: 0.6rem; }
-  </style>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>RoomSense — Survey Dashboard</title>
+  <link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <h2>RoomSense — Task 1B</h2>
-  <p class="sub">LittleFS Flash Backup & Automatic Phone Top-Up Loop</p>
+  <header class="flex-between">
+    <div>
+      <h1>RoomSense</h1>
+      <p class="sub">Wi-Fi RSSI Survey & Positioning</p>
+    </div>
+    <div>
+      <span id="connBadge" class="badge badge-disconnected">Disconnected</span>
+      <span id="flashBadge" class="badge badge-working">0 B</span>
+    </div>
+  </header>
 
+  <!-- Connection & Session Card -->
   <div class="card">
-    <button id="btnConnect">Connect to ESP32</button>
-    <button id="btnDisconnect" disabled class="danger">Disconnect</button>
-    <button id="btnStatus" disabled class="secondary">Check STATUS</button>
-    <button id="btnClearFlash" disabled class="danger">Clear Flash</button>
-    <div style="margin-top: 0.5rem;">
-      Status: <span id="connStatus" class="badge red">Disconnected</span> |
-      Flash File: <span id="flashStatus" class="badge yellow">unknown</span>
+    <div class="flex-between" style="margin-bottom: 0.8rem;">
+      <div>
+        <button id="btnConnect" class="btn-primary">Connect Board</button>
+        <button id="btnDisconnect" class="btn-outline" disabled>Disconnect</button>
+      </div>
+      <div>
+        <button id="btnExportCSV" class="btn-success">Export CSV</button>
+      </div>
+    </div>
+
+    <div class="flex-between" style="font-size: 0.9rem;">
+      <div>
+        <label for="sessionSelect">Session:</label>
+        <select id="sessionSelect" style="padding: 0.3rem 0.5rem; border-radius: 6px; border: 1px solid var(--border);">
+          <option value="session1">session1</option>
+          <option value="session2">session2</option>
+          <option value="session3">session3</option>
+        </select>
+        <button id="newSessionBtn" class="btn-outline" style="padding: 0.25rem 0.5rem; font-size: 0.8rem;">+ New</button>
+      </div>
+      <div>
+        <label for="targetScansInput">Target / Zone:</label>
+        <input type="number" id="targetScansInput" value="25" min="5" max="50" style="width: 55px; padding: 0.3rem; border-radius: 6px; border: 1px solid var(--border);">
+      </div>
     </div>
   </div>
 
+  <!-- Interactive Floor Map Card -->
   <div class="card">
-    <div class="row">
-      <label>Session: <input type="text" id="sessionInput" value="round1" style="width: 80px;"></label>
-      <button id="btnSetSession" disabled class="secondary" style="padding: 0.3rem 0.7rem; font-size: 0.85rem;">Set</button>
+    <div class="flex-between">
+      <strong>Flat Map</strong>
+      <span id="surveyStatusText" class="sub">Tap a room to select</span>
     </div>
-    <div class="row">
-      <label>Zone: <input type="text" id="zoneInput" value="kitchen" style="width: 80px;"></label>
-      <label>Target Scans: <input type="number" id="scansInput" value="5" min="1" max="25" style="width: 50px;"></label>
+
+    <div id="mapContainer">
+      <svg id="floorMap" viewBox="0 0 330 130" xmlns="http://www.w3.org/2000/svg">
+        <!-- Zones rendered dynamically from zones.json -->
+      </svg>
     </div>
-    <div class="row">
-      <button id="btnSurvey" disabled>Start Zone Survey</button>
-      <button id="btnStop" disabled class="danger">Stop</button>
+
+    <div class="progress-bar-container">
+      <div id="progressBar" class="progress-fill"></div>
     </div>
-    <div style="margin-top: 0.4rem;">
-      <label><input type="checkbox" id="chkSimulateDrop"> <strong>Test Top-up:</strong> Deliberately drop/corrupt next scan</label>
+
+    <div class="flex-between" style="margin-top: 0.8rem;">
+      <button id="btnStartSurvey" class="btn-primary" disabled style="flex: 1; margin-right: 0.5rem;">Start Zone Survey</button>
+      <button id="btnStopSurvey" class="btn-danger" disabled style="width: 90px;">Stop</button>
+    </div>
+
+    <div id="zoneGrid" class="zone-grid">
+      <!-- Zone selection buttons generated dynamically -->
     </div>
   </div>
 
+  <!-- System Console & Wipe -->
   <div class="card">
-    <div style="font-weight: 600; margin-bottom: 0.5rem;">Continuous Live Tracking (Task 1C):</div>
-    <button id="btnTrackOn" disabled style="background: #2b6cb0;">TRACK ON</button>
-    <button id="btnTrackOff" disabled class="danger">TRACK OFF</button>
-    <span id="trackBadge" class="badge yellow">Tracking Off</span>
-    <div style="margin-top: 0.5rem; font-size: 0.9rem;">
-      Continuous Scans Received: <span id="cntTrackScans">0</span>
+    <div class="flex-between" style="margin-bottom: 0.5rem;">
+      <strong>Live Console</strong>
+      <button id="btnClearDB" class="btn-outline" style="font-size: 0.75rem; padding: 0.2rem 0.5rem; color: var(--danger);">Clear Session Data</button>
     </div>
+    <div id="log">Console ready. Connect your ESP32 to start surveying.</div>
   </div>
 
-  <div class="card">
-    <strong>Session Metrics:</strong>
-    <div>Current Zone Valid Scans: <span id="cntZoneValid">0</span> / <span id="cntZoneTarget">0</span></div>
-    <div>Total Valid Scans: <span id="cntTotalValid">0</span> | Dropped / Corrupted: <span id="cntDropped">0</span></div>
-  </div>
-
-  <div id="log">Console ready. Click Connect to begin.</div>
-
-  <script>
-    const SERVICE_UUID      = "12345678-1234-5678-1234-56789abcdef0";
-    const CHAR_COMMAND_UUID = "12345678-1234-5678-1234-56789abcdef1";
-    const CHAR_STREAM_UUID  = "12345678-1234-5678-1234-56789abcdef2";
-
-    let bleDevice = null;
-    let commandChar = null;
-    let streamChar = null;
-    let rxBuffer = "";
-
-    let totalValid = 0;
-    let droppedCount = 0;
-    let activeZone = "";
-    let activeTarget = 0;
-    let activeZoneValid = 0;
-    let trackScanCount = 0;
-
-    const logEl = document.getElementById('log');
-    const connStatus = document.getElementById('connStatus');
-    const flashStatus = document.getElementById('flashStatus');
-    const trackBadge = document.getElementById('trackBadge');
-    const cntTrackScans = document.getElementById('cntTrackScans');
-    const btnConnect = document.getElementById('btnConnect');
-    const btnDisconnect = document.getElementById('btnDisconnect');
-    const btnStatus = document.getElementById('btnStatus');
-    const btnClearFlash = document.getElementById('btnClearFlash');
-    const btnSetSession = document.getElementById('btnSetSession');
-    const btnSurvey = document.getElementById('btnSurvey');
-    const btnStop = document.getElementById('btnStop');
-    const btnTrackOn = document.getElementById('btnTrackOn');
-    const btnTrackOff = document.getElementById('btnTrackOff');
-    const chkSimulateDrop = document.getElementById('chkSimulateDrop');
-    const cntZoneValid = document.getElementById('cntZoneValid');
-    const cntZoneTarget = document.getElementById('cntZoneTarget');
-    const cntTotalValid = document.getElementById('cntTotalValid');
-    const cntDropped = document.getElementById('cntDropped');
-
-    function log(msg) {
-      logEl.textContent += `\n${msg}`;
-      logEl.scrollTop = logEl.scrollHeight;
-    }
-
-    function calculateXOR(str) {
-      let xor = 0;
-      for (let i = 0; i < str.length; i++) {
-        xor ^= str.charCodeAt(i);
-      }
-      return xor.toString(16).padStart(2, '0');
-    }
-
-    async function sendCommand(cmd) {
-      if (!commandChar) {
-        log(`[ERR] Cannot send '${cmd}': not connected.`);
-        return;
-      }
-      const encoder = new TextEncoder();
-      try {
-        log(`[SEND] ${cmd}`);
-        if (commandChar.writeValueWithResponse) {
-          await commandChar.writeValueWithResponse(encoder.encode(cmd));
-        } else {
-          await commandChar.writeValue(encoder.encode(cmd));
-        }
-      } catch (err) {
-        log(`[ERR Send Failed]: ${err.message}`);
-      }
-    }
-
-    async function handleChunk(event) {
-      const decoder = new TextDecoder();
-      const chunk = decoder.decode(event.target.value);
-      rxBuffer += chunk;
-
-      let newlineIdx;
-      while ((newlineIdx = rxBuffer.indexOf('\n')) !== -1) {
-        const fullLine = rxBuffer.substring(0, newlineIdx).trim();
-        rxBuffer = rxBuffer.substring(newlineIdx + 1);
-        processCompletedLine(fullLine);
-      }
-    }
-
-    function processCompletedLine(line) {
-      if (line.startsWith("SCAN ")) {
-        const starIdx = line.lastIndexOf('*');
-        if (starIdx === -1) {
-          droppedCount++;
-          cntDropped.textContent = droppedCount;
-          log(`[ERR] Corrupted scan (no checksum): ${line}`);
-          return;
-        }
-
-        const payload = line.substring(0, starIdx);
-        const expectedChk = line.substring(starIdx + 1).toLowerCase();
-        let actualChk = calculateXOR(payload).toLowerCase();
-
-        // Deliberate corruption test for top-up
-        if (chkSimulateDrop.checked) {
-          actualChk = "ff"; // Invalidate checksum intentionally
-          chkSimulateDrop.checked = false;
-          log(`[SIMULATE] Deliberately corrupted next scan to test top-up recovery!`);
-        }
-
-        if (expectedChk === actualChk) {
-          totalValid++;
-          cntTotalValid.textContent = totalValid;
-          const parts = payload.split(" ");
-          const zone = parts[1];
-          const scanId = parts[2];
-          const apCount = parts[3];
-
-          if (zone === "track") {
-            trackScanCount++;
-            cntTrackScans.textContent = trackScanCount;
-            log(`[LIVE TRACK] #${scanId} (${apCount} APs, chk: ${actualChk} OK)`);
-          } else {
-            activeZoneValid++;
-            cntZoneValid.textContent = activeZoneValid;
-            log(`[VALID] ${zone} #${scanId} (${apCount} APs, chk: ${actualChk} OK)`);
-          }
-        } else {
-          droppedCount++;
-          cntDropped.textContent = droppedCount;
-          log(`[CORRUPT/DROPPED] Checksum mismatch (got ${actualChk}, expected ${expectedChk})`);
-        }
-      } else if (line.startsWith("DONE ")) {
-        log(`[BOARD] ${line}`);
-        const parts = line.split(" ");
-        const doneZone = parts[1];
-        
-        // --- Top-Up Verification ---
-        if (activeTarget > 0 && activeZoneValid < activeTarget) {
-          const missing = activeTarget - activeZoneValid;
-          log(`[TOP-UP LOOP] Zone '${doneZone}' has ${activeZoneValid}/${activeTarget} valid scans.`);
-          log(`[TOP-UP LOOP] Requesting ${missing} missing scan(s)...`);
-          sendCommand(`ZONE ${doneZone} ${missing}`);
-        } else if (activeTarget > 0 && activeZoneValid >= activeTarget) {
-          log(`[ZONE COMPLETE] Zone '${doneZone}' successfully completed with ${activeZoneValid}/${activeTarget} valid scans! 🎉`);
-          // Query status to verify flash backup growth
-          sendCommand("STATUS");
-        }
-      } else if (line.startsWith("STATUS ")) {
-        log(`[BOARD STATUS] ${line}`);
-        const match = line.match(/flash_bytes=(\d+)/);
-        if (match) {
-          flashStatus.textContent = `${match[1]} bytes`;
-          flashStatus.className = "badge green";
-        }
-      } else {
-        log(`[BOARD] ${line}`);
-      }
-    }
-
-    btnConnect.addEventListener('click', async () => {
-      try {
-        log("Opening Bluetooth picker...");
-        bleDevice = await navigator.bluetooth.requestDevice({
-          acceptAllDevices: true,
-          optionalServices: [SERVICE_UUID]
-        });
-
-        connStatus.textContent = "Connecting...";
-        bleDevice.addEventListener('gattserverdisconnected', onDisconnected);
-
-        const server = await bleDevice.gatt.connect();
-        const service = await server.getPrimaryService(SERVICE_UUID);
-
-        commandChar = await service.getCharacteristic(CHAR_COMMAND_UUID);
-        streamChar = await service.getCharacteristic(CHAR_STREAM_UUID);
-
-        await streamChar.startNotifications();
-        streamChar.addEventListener('characteristicvaluechanged', handleChunk);
-
-        connStatus.textContent = "Connected";
-        connStatus.className = "badge green";
-        btnConnect.disabled = true;
-        btnDisconnect.disabled = false;
-        btnStatus.disabled = false;
-        btnClearFlash.disabled = false;
-        btnSetSession.disabled = false;
-        btnSurvey.disabled = false;
-        btnStop.disabled = false;
-        btnTrackOn.disabled = false;
-        btnTrackOff.disabled = true;
-        log("Connected! Requesting board status...");
-        setTimeout(() => sendCommand("STATUS"), 350);
-      } catch (err) {
-        log(`Connection failed: ${err.message}`);
-        connStatus.textContent = "Disconnected";
-        connStatus.className = "badge red";
-      }
-    });
-
-    function onDisconnected() {
-      connStatus.textContent = "Disconnected";
-      connStatus.className = "badge red";
-      btnConnect.disabled = false;
-      btnDisconnect.disabled = true;
-      btnStatus.disabled = true;
-      btnClearFlash.disabled = true;
-      btnSetSession.disabled = true;
-      btnSurvey.disabled = true;
-      btnStop.disabled = true;
-      btnTrackOn.disabled = true;
-      btnTrackOff.disabled = true;
-      trackBadge.textContent = "Tracking Off";
-      trackBadge.className = "badge yellow";
-      log("ESP32 disconnected.");
-    }
-
-    btnDisconnect.addEventListener('click', () => {
-      if (bleDevice && bleDevice.gatt.connected) {
-        bleDevice.gatt.disconnect();
-      }
-    });
-
-    btnStatus.addEventListener('click', () => {
-      sendCommand("STATUS");
-    });
-
-    btnClearFlash.addEventListener('click', () => {
-      if (confirm("Clear /survey.csv from ESP32 flash memory?")) {
-        sendCommand("CLEAR_FLASH");
-      }
-    });
-
-    btnSetSession.addEventListener('click', () => {
-      const sess = document.getElementById('sessionInput').value.trim() || 'round1';
-      sendCommand(`SESSION ${sess}`);
-    });
-
-    btnSurvey.addEventListener('click', async () => {
-      activeZone = document.getElementById('zoneInput').value.trim() || 'kitchen';
-      activeTarget = parseInt(document.getElementById('scansInput').value, 10) || 5;
-      activeZoneValid = 0;
-      cntZoneValid.textContent = "0";
-      cntZoneTarget.textContent = activeTarget;
-
-      log(`[SURVEY START] Zone: '${activeZone}', Target: ${activeTarget} scans.`);
-      await sendCommand(`ZONE ${activeZone} ${activeTarget}`);
-    });
-
-    btnStop.addEventListener('click', async () => {
-      activeTarget = 0;
-      await sendCommand("STOP");
-    });
-
-    btnTrackOn.addEventListener('click', async () => {
-      trackScanCount = 0;
-      cntTrackScans.textContent = "0";
-      await sendCommand("TRACK ON");
-      trackBadge.textContent = "Tracking ON";
-      trackBadge.className = "badge green";
-      btnTrackOn.disabled = true;
-      btnTrackOff.disabled = false;
-      btnSurvey.disabled = true;
-      log("[TRACK] Continuous scanning started. Scans will stream every ~2s.");
-    });
-
-    btnTrackOff.addEventListener('click', async () => {
-      await sendCommand("TRACK OFF");
-      trackBadge.textContent = "Tracking Off";
-      trackBadge.className = "badge yellow";
-      btnTrackOn.disabled = false;
-      btnTrackOff.disabled = true;
-      btnSurvey.disabled = false;
-      log("[TRACK] Continuous scanning stopped (current scan finishes in ~2s).");
-    });
-  </script>
+  <script src="app.js"></script>
 </body>
 </html>

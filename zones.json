@@ -1,0 +1,58 @@
+{
+  "zones": [
+    {
+      "id": "outside",
+      "label": "Outside / Entrance",
+      "x": 20,
+      "y": 80,
+      "w": 60,
+      "h": 30,
+      "neighbors": ["passage"]
+    },
+    {
+      "id": "passage",
+      "label": "Passage",
+      "x": 100,
+      "y": 20,
+      "w": 40,
+      "h": 90,
+      "neighbors": ["outside", "hall", "kitchen", "storage", "router"]
+    },
+    {
+      "id": "kitchen",
+      "label": "Kitchen",
+      "x": 20,
+      "y": 20,
+      "w": 60,
+      "h": 45,
+      "neighbors": ["passage"]
+    },
+    {
+      "id": "storage",
+      "label": "Storage",
+      "x": 160,
+      "y": 80,
+      "w": 50,
+      "h": 30,
+      "neighbors": ["passage"]
+    },
+    {
+      "id": "hall",
+      "label": "Hall",
+      "x": 160,
+      "y": 20,
+      "w": 90,
+      "h": 45,
+      "neighbors": ["passage", "router"]
+    },
+    {
+      "id": "router",
+      "label": "Router Spot",
+      "x": 270,
+      "y": 20,
+      "w": 40,
+      "h": 45,
+      "neighbors": ["hall", "passage"]
+    }
+  ]
+}
