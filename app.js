@@ -153,14 +153,14 @@ async function loadZones() {
     const data = await res.json();
     zonesData = data.zones;
   } catch (err) {
-    // Fallback if local fetch fails
+    // Fallback matching real flat layout
     zonesData = [
-      { id: "outside", label: "Outside", x: 20, y: 80, w: 60, h: 30, neighbors: ["passage"] },
-      { id: "passage", label: "Passage", x: 100, y: 20, w: 40, h: 90, neighbors: ["outside", "hall", "kitchen", "storage", "router"] },
-      { id: "kitchen", label: "Kitchen", x: 20, y: 20, w: 60, h: 45, neighbors: ["passage"] },
-      { id: "storage", label: "Storage", x: 160, y: 80, w: 50, h: 30, neighbors: ["passage"] },
-      { id: "hall", label: "Hall", x: 160, y: 20, w: 90, h: 45, neighbors: ["passage", "router"] },
-      { id: "router", label: "Router", x: 270, y: 20, w: 40, h: 45, neighbors: ["hall", "passage"] }
+      { id: "hall", label: "Hall", x: 10, y: 10, w: 130, h: 120, dotX: 30, dotY: 30, neighbors: ["outside", "router", "kitchen", "passage"] },
+      { id: "router", label: "Router", x: 105, y: 60, w: 35, h: 35, dotX: 122, dotY: 77, neighbors: ["hall", "passage"] },
+      { id: "outside", label: "Outside", x: 140, y: 10, w: 85, h: 45, dotX: 182, dotY: 32, neighbors: ["hall"] },
+      { id: "kitchen", label: "Kitchen", x: 10, y: 130, w: 100, h: 50, dotX: 25, dotY: 155, neighbors: ["hall", "passage", "storage"] },
+      { id: "passage", label: "Passage", x: 110, y: 130, w: 30, h: 90, dotX: 125, dotY: 155, neighbors: ["hall", "kitchen", "storage", "router"] },
+      { id: "storage", label: "Storage", x: 10, y: 180, w: 55, h: 50, dotX: 35, dotY: 205, neighbors: ["kitchen", "passage"] }
     ];
   }
   renderFloorMap();
@@ -195,6 +195,20 @@ function renderFloorMap() {
 
     g.appendChild(rect);
     g.appendChild(text);
+
+    // Survey Dot Marker (from user's floor sketch)
+    if (z.dotX && z.dotY) {
+      const dot = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+      dot.setAttribute("cx", z.dotX);
+      dot.setAttribute("cy", z.dotY);
+      dot.setAttribute("r", "3");
+      dot.setAttribute("fill", "#ef4444");
+      dot.setAttribute("stroke", "#ffffff");
+      dot.setAttribute("stroke-width", "0.8");
+      dot.setAttribute("pointer-events", "none");
+      g.appendChild(dot);
+    }
+
     floorMap.appendChild(g);
   });
 }
