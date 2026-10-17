@@ -294,7 +294,7 @@
         btnTrackOn.disabled = false;
         btnTrackOff.disabled = true;
         log("Connected! Requesting board status...");
-        sendCommand("STATUS");
+        setTimeout(() => sendCommand("STATUS"), 350);
       } catch (err) {
         log(`Connection failed: ${err.message}`);
         connStatus.textContent = "Disconnected";

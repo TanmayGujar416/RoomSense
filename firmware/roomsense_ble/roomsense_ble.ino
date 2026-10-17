@@ -28,6 +28,8 @@ bool deviceConnected = false;
 // Job request flags set by BLE onWrite callback
 volatile bool jobPending = false;
 volatile bool trackMode = false;
+volatile bool statusRequested = false;
+volatile bool clearFlashRequested = false;
 char currentSession[32] = "session1";
 char currentZone[32] = "unknown";
 int targetScans = 0;
@@ -202,14 +204,11 @@ class CommandCallbacks : public NimBLECharacteristicCallbacks {
       jobPending = false;
       Serial.println("[BLE CMD] Stopped by client");
     } else if (upperCmd == "STATUS") {
-      size_t fBytes = getFlashSurveySize();
-      String statusLine = "STATUS ready session=" + String(currentSession) + " flash_bytes=" + String(fBytes) + "\n";
-      sendBLEChunked(statusLine);
-      Serial.printf("[BLE CMD] STATUS requested. Flash bytes: %u\n", (unsigned int)fBytes);
+      statusRequested = true;
+      Serial.println("[BLE CMD] STATUS queued for main loop");
     } else if (upperCmd == "CLEAR_FLASH") {
-      LittleFS.remove("/survey.csv");
-      Serial.println("[LittleFS] /survey.csv wiped.");
-      sendBLEChunked("STATUS flash_cleared flash_bytes=0\n");
+      clearFlashRequested = true;
+      Serial.println("[BLE CMD] CLEAR_FLASH queued for main loop");
     }
   }
 
@@ -329,6 +328,23 @@ void setup() {
 }
 
 void loop() {
+  // Handle asynchronous STATUS request in main loop context
+  if (statusRequested && isClientConnected()) {
+    statusRequested = false;
+    size_t fBytes = getFlashSurveySize();
+    String statusLine = "STATUS ready session=" + String(currentSession) + " flash_bytes=" + String(fBytes) + "\n";
+    sendBLEChunked(statusLine);
+    Serial.printf("[STATUS] Replied flash_bytes: %u\n", (unsigned int)fBytes);
+  }
+
+  // Handle asynchronous CLEAR_FLASH request
+  if (clearFlashRequested && isClientConnected()) {
+    clearFlashRequested = false;
+    LittleFS.remove("/survey.csv");
+    sendBLEChunked("STATUS flash_cleared flash_bytes=0\n");
+    Serial.println("[LittleFS] /survey.csv wiped.");
+  }
+
   if (jobPending && isClientConnected()) {
     if (trackMode) {
       // Continuous tracking mode
