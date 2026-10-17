@@ -122,7 +122,7 @@ class ServerCallbacks : public NimBLEServerCallbacks {
 };
 
 class CommandCallbacks : public NimBLECharacteristicCallbacks {
-  void onWrite(NimBLECharacteristic* pCharacteristic) {
+  void handleWrite(NimBLECharacteristic* pCharacteristic) {
     deviceConnected = true; // If a write was received, device is definitely connected!
     std::string rxVal = pCharacteristic->getValue();
     if (rxVal.empty()) return;
@@ -165,6 +165,16 @@ class CommandCallbacks : public NimBLECharacteristicCallbacks {
       String statusLine = "STATUS ready\n";
       sendBLEChunked(statusLine);
     }
+  }
+
+  // NimBLE 1.x signature
+  void onWrite(NimBLECharacteristic* pCharacteristic) {
+    handleWrite(pCharacteristic);
+  }
+
+  // NimBLE 2.x signature
+  void onWrite(NimBLECharacteristic* pCharacteristic, NimBLEConnInfo& connInfo) {
+    handleWrite(pCharacteristic);
   }
 };
 
