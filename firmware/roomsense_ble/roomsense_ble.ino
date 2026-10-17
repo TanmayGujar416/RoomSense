@@ -8,6 +8,7 @@
  */
 
 #include <WiFi.h>
+#include <LittleFS.h>
 #include <NimBLEDevice.h>
 
 // --- Hardware Pin Definitions ---
@@ -27,9 +28,39 @@ bool deviceConnected = false;
 // Job request flags set by BLE onWrite callback
 volatile bool jobPending = false;
 volatile bool trackMode = false;
+char currentSession[32] = "session1";
 char currentZone[32] = "unknown";
 int targetScans = 0;
 int currentScanIndex = 0;
+
+// --- Helper: Query Flash File Size ---
+size_t getFlashSurveySize() {
+  if (!LittleFS.exists("/survey.csv")) return 0;
+  File f = LittleFS.open("/survey.csv", "r");
+  if (!f) return 0;
+  size_t sz = f.size();
+  f.close();
+  return sz;
+}
+
+// --- Helper: Append Scan to Flash Memory ---
+void logScanToFlash(const char* session, const char* zone, int scanId, int nAPs) {
+  File f = LittleFS.open("/survey.csv", "a");
+  if (!f) {
+    Serial.println("[LittleFS] Failed to open /survey.csv for append");
+    return;
+  }
+  for (int i = 0; i < nAPs; i++) {
+    uint8_t* bssid = WiFi.BSSID(i);
+    int32_t rssi = WiFi.RSSI(i);
+    char hexBSSID[13];
+    snprintf(hexBSSID, sizeof(hexBSSID), "%02x%02x%02x%02x%02x%02x",
+             bssid[0], bssid[1], bssid[2], bssid[3], bssid[4], bssid[5]);
+    // Format matches PROJECT_NOTES.md: session,zone,scan_id,bssid,rssi
+    f.printf("%s,%s,%d,%s,%d\n", session, zone, scanId, hexBSSID, rssi);
+  }
+  f.close();
+}
 
 // --- Helper: Buzzer Beep ---
 void beep(int frequency, int durationMs) {
@@ -151,6 +182,15 @@ class CommandCallbacks : public NimBLECharacteristicCallbacks {
           Serial.printf("[BLE CMD] Accepted ZONE job: '%s', count: %d\n", currentZone, targetScans);
         }
       }
+    } else if (upperCmd.startsWith("SESSION ")) {
+      String sess = cmd.substring(8);
+      sess.trim();
+      if (sess.length() > 0) {
+        strncpy(currentSession, sess.c_str(), sizeof(currentSession) - 1);
+        currentSession[sizeof(currentSession) - 1] = '\0';
+        Serial.printf("[BLE CMD] Session set to: '%s'\n", currentSession);
+        sendBLEChunked("STATUS session=" + String(currentSession) + "\n");
+      }
     } else if (upperCmd == "TRACK ON") {
       trackMode = true;
       jobPending = true;
@@ -162,8 +202,14 @@ class CommandCallbacks : public NimBLECharacteristicCallbacks {
       jobPending = false;
       Serial.println("[BLE CMD] Stopped by client");
     } else if (upperCmd == "STATUS") {
-      String statusLine = "STATUS ready\n";
+      size_t fBytes = getFlashSurveySize();
+      String statusLine = "STATUS ready session=" + String(currentSession) + " flash_bytes=" + String(fBytes) + "\n";
       sendBLEChunked(statusLine);
+      Serial.printf("[BLE CMD] STATUS requested. Flash bytes: %u\n", (unsigned int)fBytes);
+    } else if (upperCmd == "CLEAR_FLASH") {
+      LittleFS.remove("/survey.csv");
+      Serial.println("[LittleFS] /survey.csv wiped.");
+      sendBLEChunked("STATUS flash_cleared flash_bytes=0\n");
     }
   }
 
@@ -206,6 +252,12 @@ void performScanAndStream(const char* zone, int scanId) {
   String completeLine = payload + "*" + chk + "\n";
 
   sendBLEChunked(completeLine);
+
+  // If this is a survey scan (not live tracking), log to LittleFS flash backup
+  if (strcmp(zone, "track") != 0) {
+    logScanToFlash(currentSession, zone, scanId, nAPs);
+  }
+
   WiFi.scanDelete(); // Free scan memory
 }
 
@@ -213,6 +265,13 @@ void setup() {
   Serial.begin(115200);
   delay(1000);
   Serial.println("\n[RoomSense] Starting ESP32 Firmware...");
+
+  // Initialize LittleFS flash memory
+  if (!LittleFS.begin(true)) {
+    Serial.println("[LittleFS] Mount failed!");
+  } else {
+    Serial.printf("[LittleFS] Mounted. /survey.csv size: %u bytes\n", (unsigned int)getFlashSurveySize());
+  }
 
   // Setup pins
   pinMode(PIN_LED, OUTPUT);

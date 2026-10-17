@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>RoomSense — Task 1A Test Dashboard</title>
+  <title>RoomSense — Task 1B Dashboard</title>
   <style>
     body {
       font-family: system-ui, -apple-system, sans-serif;
@@ -21,8 +21,8 @@
       margin-bottom: 1rem;
     }
     button {
-      font-size: 1rem;
-      padding: 0.6rem 1.2rem;
+      font-size: 0.95rem;
+      padding: 0.5rem 1rem;
       border-radius: 6px;
       border: none;
       background: #0066cc;
@@ -32,9 +32,10 @@
       margin-bottom: 0.5rem;
     }
     button:disabled { background: #a0aec0; cursor: not-allowed; }
+    button.secondary { background: #4a5568; }
     button.danger { background: #e53e3e; }
     #log {
-      height: 260px;
+      height: 280px;
       overflow-y: auto;
       background: #1a202c;
       color: #e2e8f0;
@@ -54,29 +55,47 @@
     }
     .badge.green { background: #c6f6d5; color: #22543d; }
     .badge.red { background: #fed7d7; color: #742a2a; }
+    .badge.yellow { background: #feebc8; color: #7b341e; }
+    .row { margin-bottom: 0.6rem; }
   </style>
 </head>
 <body>
-  <h2>RoomSense — Task 1A</h2>
-  <p class="sub">NimBLE Stream, 20-byte Chunk Reassembly & XOR Checksum</p>
+  <h2>RoomSense — Task 1B</h2>
+  <p class="sub">LittleFS Flash Backup & Automatic Phone Top-Up Loop</p>
 
   <div class="card">
     <button id="btnConnect">Connect to ESP32</button>
     <button id="btnDisconnect" disabled class="danger">Disconnect</button>
-    <div>Status: <span id="connStatus" class="badge red">Disconnected</span></div>
+    <button id="btnStatus" disabled class="secondary">Check STATUS</button>
+    <button id="btnClearFlash" disabled class="danger">Clear Flash</button>
+    <div style="margin-top: 0.5rem;">
+      Status: <span id="connStatus" class="badge red">Disconnected</span> |
+      Flash File: <span id="flashStatus" class="badge yellow">unknown</span>
+    </div>
   </div>
 
   <div class="card">
-    <label>Zone: <input type="text" id="zoneInput" value="kitchen" style="width: 90px;"></label>
-    <label>Scans: <input type="number" id="scansInput" value="5" min="1" max="25" style="width: 50px;"></label>
-    <br><br>
-    <button id="btnSurvey" disabled>Send ZONE Command</button>
-    <button id="btnStop" disabled class="danger">Stop</button>
+    <div class="row">
+      <label>Session: <input type="text" id="sessionInput" value="round1" style="width: 80px;"></label>
+      <button id="btnSetSession" disabled class="secondary" style="padding: 0.3rem 0.7rem; font-size: 0.85rem;">Set</button>
+    </div>
+    <div class="row">
+      <label>Zone: <input type="text" id="zoneInput" value="kitchen" style="width: 80px;"></label>
+      <label>Target Scans: <input type="number" id="scansInput" value="5" min="1" max="25" style="width: 50px;"></label>
+    </div>
+    <div class="row">
+      <button id="btnSurvey" disabled>Start Zone Survey</button>
+      <button id="btnStop" disabled class="danger">Stop</button>
+    </div>
+    <div style="margin-top: 0.4rem;">
+      <label><input type="checkbox" id="chkSimulateDrop"> <strong>Test Top-up:</strong> Deliberately drop/corrupt next scan</label>
+    </div>
   </div>
 
   <div class="card">
-    <strong>Metrics:</strong>
-    <div>Valid scans received: <span id="cntValid">0</span> | Dropped/corrupt: <span id="cntDropped">0</span></div>
+    <strong>Session Metrics:</strong>
+    <div>Current Zone Valid Scans: <span id="cntZoneValid">0</span> / <span id="cntZoneTarget">0</span></div>
+    <div>Total Valid Scans: <span id="cntTotalValid">0</span> | Dropped / Corrupted: <span id="cntDropped">0</span></div>
   </div>
 
   <div id="log">Console ready. Click Connect to begin.</div>
@@ -90,16 +109,27 @@
     let commandChar = null;
     let streamChar = null;
     let rxBuffer = "";
-    let validCount = 0;
+
+    let totalValid = 0;
     let droppedCount = 0;
+    let activeZone = "";
+    let activeTarget = 0;
+    let activeZoneValid = 0;
 
     const logEl = document.getElementById('log');
     const connStatus = document.getElementById('connStatus');
+    const flashStatus = document.getElementById('flashStatus');
     const btnConnect = document.getElementById('btnConnect');
     const btnDisconnect = document.getElementById('btnDisconnect');
+    const btnStatus = document.getElementById('btnStatus');
+    const btnClearFlash = document.getElementById('btnClearFlash');
+    const btnSetSession = document.getElementById('btnSetSession');
     const btnSurvey = document.getElementById('btnSurvey');
     const btnStop = document.getElementById('btnStop');
-    const cntValid = document.getElementById('cntValid');
+    const chkSimulateDrop = document.getElementById('chkSimulateDrop');
+    const cntZoneValid = document.getElementById('cntZoneValid');
+    const cntZoneTarget = document.getElementById('cntZoneTarget');
+    const cntTotalValid = document.getElementById('cntTotalValid');
     const cntDropped = document.getElementById('cntDropped');
 
     function log(msg) {
@@ -115,12 +145,29 @@
       return xor.toString(16).padStart(2, '0');
     }
 
+    async function sendCommand(cmd) {
+      if (!commandChar) {
+        log(`[ERR] Cannot send '${cmd}': not connected.`);
+        return;
+      }
+      const encoder = new TextEncoder();
+      try {
+        log(`[SEND] ${cmd}`);
+        if (commandChar.writeValueWithResponse) {
+          await commandChar.writeValueWithResponse(encoder.encode(cmd));
+        } else {
+          await commandChar.writeValue(encoder.encode(cmd));
+        }
+      } catch (err) {
+        log(`[ERR Send Failed]: ${err.message}`);
+      }
+    }
+
     async function handleChunk(event) {
       const decoder = new TextDecoder();
       const chunk = decoder.decode(event.target.value);
       rxBuffer += chunk;
 
-      // Check if one or more full lines terminated by \n have arrived
       let newlineIdx;
       while ((newlineIdx = rxBuffer.indexOf('\n')) !== -1) {
         const fullLine = rxBuffer.substring(0, newlineIdx).trim();
@@ -131,34 +178,63 @@
 
     function processCompletedLine(line) {
       if (line.startsWith("SCAN ")) {
-        // Line format: SCAN <zone> <id> <ap_count> <bssids...>*<chk>
         const starIdx = line.lastIndexOf('*');
         if (starIdx === -1) {
           droppedCount++;
           cntDropped.textContent = droppedCount;
-          log(`[ERR] Missing checksum: ${line}`);
+          log(`[ERR] Corrupted scan (no checksum): ${line}`);
           return;
         }
 
         const payload = line.substring(0, starIdx);
         const expectedChk = line.substring(starIdx + 1).toLowerCase();
-        const actualChk = calculateXOR(payload).toLowerCase();
+        let actualChk = calculateXOR(payload).toLowerCase();
+
+        // Deliberate corruption test for top-up
+        if (chkSimulateDrop.checked) {
+          actualChk = "ff"; // Invalidate checksum intentionally
+          chkSimulateDrop.checked = false;
+          log(`[SIMULATE] Deliberately corrupted next scan to test top-up recovery!`);
+        }
 
         if (expectedChk === actualChk) {
-          validCount++;
-          cntValid.textContent = validCount;
+          totalValid++;
+          activeZoneValid++;
+          cntTotalValid.textContent = totalValid;
+          cntZoneValid.textContent = activeZoneValid;
           const parts = payload.split(" ");
           const zone = parts[1];
           const scanId = parts[2];
           const apCount = parts[3];
-          log(`[VALID SCAN] Zone: ${zone} | ID: ${scanId} | APs: ${apCount} (chk: ${actualChk} OK)`);
+          log(`[VALID] ${zone} #${scanId} (${apCount} APs, chk: ${actualChk} OK)`);
         } else {
           droppedCount++;
           cntDropped.textContent = droppedCount;
-          log(`[CORRUPT] Checksum mismatch! Got: ${actualChk}, Expected: ${expectedChk}`);
+          log(`[CORRUPT/DROPPED] Checksum mismatch (got ${actualChk}, expected ${expectedChk})`);
         }
       } else if (line.startsWith("DONE ")) {
-        log(`[DONE] ${line}`);
+        log(`[BOARD] ${line}`);
+        const parts = line.split(" ");
+        const doneZone = parts[1];
+        
+        // --- Top-Up Verification ---
+        if (activeTarget > 0 && activeZoneValid < activeTarget) {
+          const missing = activeTarget - activeZoneValid;
+          log(`[TOP-UP LOOP] Zone '${doneZone}' has ${activeZoneValid}/${activeTarget} valid scans.`);
+          log(`[TOP-UP LOOP] Requesting ${missing} missing scan(s)...`);
+          sendCommand(`ZONE ${doneZone} ${missing}`);
+        } else if (activeTarget > 0 && activeZoneValid >= activeTarget) {
+          log(`[ZONE COMPLETE] Zone '${doneZone}' successfully completed with ${activeZoneValid}/${activeTarget} valid scans! 🎉`);
+          // Query status to verify flash backup growth
+          sendCommand("STATUS");
+        }
+      } else if (line.startsWith("STATUS ")) {
+        log(`[BOARD STATUS] ${line}`);
+        const match = line.match(/flash_bytes=(\d+)/);
+        if (match) {
+          flashStatus.textContent = `${match[1]} bytes`;
+          flashStatus.className = "badge green";
+        }
       } else {
         log(`[BOARD] ${line}`);
       }
@@ -168,7 +244,6 @@
       try {
         log("Opening Bluetooth picker...");
         bleDevice = await navigator.bluetooth.requestDevice({
-          // Accept any device or filter by RoomSense service
           acceptAllDevices: true,
           optionalServices: [SERVICE_UUID]
         });
@@ -189,9 +264,13 @@
         connStatus.className = "badge green";
         btnConnect.disabled = true;
         btnDisconnect.disabled = false;
+        btnStatus.disabled = false;
+        btnClearFlash.disabled = false;
+        btnSetSession.disabled = false;
         btnSurvey.disabled = false;
         btnStop.disabled = false;
-        log("Connected & subscribed to stream!");
+        log("Connected! Requesting board status...");
+        sendCommand("STATUS");
       } catch (err) {
         log(`Connection failed: ${err.message}`);
         connStatus.textContent = "Disconnected";
@@ -204,6 +283,9 @@
       connStatus.className = "badge red";
       btnConnect.disabled = false;
       btnDisconnect.disabled = true;
+      btnStatus.disabled = true;
+      btnClearFlash.disabled = true;
+      btnSetSession.disabled = true;
       btnSurvey.disabled = true;
       btnStop.disabled = true;
       log("ESP32 disconnected.");
@@ -215,41 +297,35 @@
       }
     });
 
-    btnSurvey.addEventListener('click', async () => {
-      if (!commandChar) {
-        log("[ERR] Not connected to command characteristic.");
-        return;
-      }
-      const zone = document.getElementById('zoneInput').value.trim() || 'kitchen';
-      const n = document.getElementById('scansInput').value || 5;
-      const cmd = `ZONE ${zone} ${n}`;
-      const encoder = new TextEncoder();
-      try {
-        log(`Sending: ${cmd}...`);
-        if (commandChar.writeValueWithResponse) {
-          await commandChar.writeValueWithResponse(encoder.encode(cmd));
-        } else {
-          await commandChar.writeValue(encoder.encode(cmd));
-        }
-        log(`Sent: ${cmd}`);
-      } catch (err) {
-        log(`[ERR Send Failed]: ${err.message}`);
+    btnStatus.addEventListener('click', () => {
+      sendCommand("STATUS");
+    });
+
+    btnClearFlash.addEventListener('click', () => {
+      if (confirm("Clear /survey.csv from ESP32 flash memory?")) {
+        sendCommand("CLEAR_FLASH");
       }
     });
 
+    btnSetSession.addEventListener('click', () => {
+      const sess = document.getElementById('sessionInput').value.trim() || 'round1';
+      sendCommand(`SESSION ${sess}`);
+    });
+
+    btnSurvey.addEventListener('click', async () => {
+      activeZone = document.getElementById('zoneInput').value.trim() || 'kitchen';
+      activeTarget = parseInt(document.getElementById('scansInput').value, 10) || 5;
+      activeZoneValid = 0;
+      cntZoneValid.textContent = "0";
+      cntZoneTarget.textContent = activeTarget;
+
+      log(`[SURVEY START] Zone: '${activeZone}', Target: ${activeTarget} scans.`);
+      await sendCommand(`ZONE ${activeZone} ${activeTarget}`);
+    });
+
     btnStop.addEventListener('click', async () => {
-      if (!commandChar) return;
-      const encoder = new TextEncoder();
-      try {
-        if (commandChar.writeValueWithResponse) {
-          await commandChar.writeValueWithResponse(encoder.encode("STOP"));
-        } else {
-          await commandChar.writeValue(encoder.encode("STOP"));
-        }
-        log("Sent: STOP");
-      } catch (err) {
-        log(`[ERR Stop Failed]: ${err.message}`);
-      }
+      activeTarget = 0;
+      await sendCommand("STOP");
     });
   </script>
 </body>
