@@ -70,6 +70,23 @@ plt.title(f"{best}: train round {args.train}, test round {args.test}")
 plt.tight_layout()
 plt.savefig("confusion.png", dpi=150)
 
+print("\nPer-zone metrics:")
+zone_warnings = []
+for i, z in enumerate(labels):
+    true_count = cm[i, :].sum()
+    pred_count = cm[:, i].sum()
+    correct = cm[i, i]
+    recall = (correct / true_count * 100) if true_count > 0 else 0.0
+    precision = (correct / pred_count * 100) if pred_count > 0 else 0.0
+    print(f"  {z:10s}  recall: {recall:5.1f}% ({correct:2d}/{true_count:2d})   precision: {precision:5.1f}%")
+    if recall < 60.0:
+        zone_warnings.append(f"WARNING: Zone '{z}' recall is {recall:.1f}%, below the 60% floor!")
+
+if zone_warnings:
+    print()
+    for w in zone_warnings:
+        print(f"  [!] {w}")
+
 # Averaging test: average `avg` consecutive test scans of the same zone, then predict once.
 m = models[best]
 Xa, ya = [], []
@@ -85,7 +102,10 @@ if Xa:
 
 acc = results[best][0] * 100
 print("\nVERDICT:")
-if acc >= 70:
+if zone_warnings:
+    print(f"WARNING / FLOOR BREACH: Overall accuracy is {acc:.1f}%, but {len(zone_warnings)} zone(s) failed the 60% recall floor.")
+    print("Review confusion matrix for overlapping zones or multi-day drift before deploying.")
+elif acc >= 70:
     print("GO. Fingerprints separate well enough. Continue with RoomSense.")
 elif acc >= 50:
     print("BORDERLINE. Try: more scans averaged, a phone-hotspot anchor, fewer or farther-apart zones.")
