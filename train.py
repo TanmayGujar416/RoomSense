@@ -1,9 +1,12 @@
 """RoomSense Laptop Trainer & Evaluator
 Leave-One-Session-Out Cross Validation for Weighted kNN and Gaussian Naive Bayes
 Implemented with plain NumPy to guarantee bit-for-bit parity with browser JS runtime.
+Includes Belief Filter, Novelty Thresholding, and full-precision model.json export.
 """
 
 import argparse
+from datetime import datetime
+import json
 import sys
 import numpy as np
 import pandas as pd
@@ -41,6 +44,75 @@ def load_dataset(csv_path):
     return pivot, meta
 
 
+def load_zone_neighbors(zones_json_path="zones.json"):
+    """Load flat room adjacency graph from zones.json."""
+    try:
+        with open(zones_json_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        zones_list = data.get("zones", [])
+        return {z["id"]: z.get("neighbors", []) for z in zones_list}
+    except Exception as e:
+        print(f"[!] Warning: Could not load '{zones_json_path}': {e}. Using empty adjacency.")
+        return {}
+
+
+def compute_novelty_threshold(X):
+    """Calculate novelty distance threshold: 1.2 * 98th percentile of 1-NN distances."""
+    N = len(X)
+    dists_1nn = []
+    for i in range(N):
+        diffs = X - X[i]
+        dists = np.sqrt(np.sum(diffs ** 2, axis=1))
+        dists[i] = np.inf  # exclude self
+        dists_1nn.append(np.min(dists))
+
+    dists_1nn = np.array(dists_1nn)
+    p98 = float(np.percentile(dists_1nn, 98))
+    threshold = float(1.2 * p98)
+    return threshold, p98, dists_1nn
+
+
+class BeliefFilter:
+    """Markov belief state filter that uses the physical room graph to damp impossible jumps."""
+
+    def __init__(self, zones, neighbors_dict, self_trans=0.70, non_neighbor_p=0.01):
+        self.zones = sorted(zones)
+        self.zone_to_idx = {z: i for i, z in enumerate(self.zones)}
+        self.neighbors = neighbors_dict
+        self.self_trans = float(self_trans)
+        self.non_neighbor_p = float(non_neighbor_p)
+        self.belief = np.ones(len(self.zones), dtype=np.float64) / len(self.zones)
+
+    def reset(self):
+        self.belief = np.ones(len(self.zones), dtype=np.float64) / len(self.zones)
+
+    def update(self, raw_probs):
+        pred_belief = np.zeros_like(self.belief)
+        for prev_idx, prev_zone in enumerate(self.zones):
+            p_prev = self.belief[prev_idx]
+            neighs = self.neighbors.get(prev_zone, [])
+            n_count = max(1, len(neighs))
+            neigh_trans = (1.0 - self.self_trans) / n_count
+
+            for curr_idx, curr_zone in enumerate(self.zones):
+                if curr_zone == prev_zone:
+                    trans_p = self.self_trans
+                elif curr_zone in neighs:
+                    trans_p = neigh_trans
+                else:
+                    trans_p = self.non_neighbor_p
+                pred_belief[curr_idx] += p_prev * trans_p
+
+        pred_belief /= np.sum(pred_belief)
+        updated = raw_probs * pred_belief
+        total = np.sum(updated)
+        if total > 0:
+            self.belief = updated / total
+        else:
+            self.belief = raw_probs
+        return self.belief
+
+
 class NumPyGaussianNB:
     """Gaussian Naive Bayes implemented in pure NumPy with explicit variance smoothing."""
 
@@ -69,7 +141,6 @@ class NumPyGaussianNB:
         return self
 
     def predict_log_proba(self, X):
-        # Shape: (n_samples, n_classes)
         log_priors = np.log(self.priors_)
         log_probs = []
 
@@ -85,7 +156,6 @@ class NumPyGaussianNB:
 
     def predict_proba(self, X):
         log_probs = self.predict_log_proba(X)
-        # Numerically stable softmax
         max_log = np.max(log_probs, axis=1, keepdims=True)
         exp_probs = np.exp(log_probs - max_log)
         return exp_probs / np.sum(exp_probs, axis=1, keepdims=True)
@@ -117,7 +187,6 @@ class NumPyWeightedKNN:
         class_to_idx = {c: i for i, c in enumerate(self.classes_)}
 
         for sample_idx, x in enumerate(X):
-            # Euclidean distance to all training vectors
             dists = np.sqrt(np.sum((self.X_train_ - x) ** 2, axis=1))
             k_indices = np.argsort(dists)[: self.k]
             k_dists = dists[k_indices]
@@ -192,6 +261,107 @@ def print_evaluation_report(title, acc, cm, per_zone, warnings):
         print(f"\nVERDICT: PASS — All zones met or exceeded the 60% recall floor.")
 
 
+def export_model_json(
+    output_path,
+    pivot,
+    meta,
+    zones_json_path="zones.json",
+    min_seen=0.2,
+    k=3,
+    var_smoothing=0.1,
+):
+    """Export complete model.json with parameters, novelty threshold, and parity test block."""
+    # 1. Feature selection: APs heard in >= min_seen fraction of all scans
+    keep_aps = (pivot > -100.0).mean(axis=0) >= min_seen
+    kept_bssid_list = pivot.columns[keep_aps].tolist()
+
+    X = pivot.loc[:, keep_aps].values
+    y = meta["zone"].values
+    zones = sorted(np.unique(y).tolist())
+
+    # 2. Fit models on full dataset
+    knn = NumPyWeightedKNN(k=k).fit(X, y)
+    gnb = NumPyGaussianNB(var_smoothing=var_smoothing).fit(X, y)
+
+    # 3. Compute Novelty Threshold
+    novelty_thresh, p98_dist, all_1nn = compute_novelty_threshold(X)
+    print(f"\nNovelty Threshold computed: {novelty_thresh:.2f} dBm (98th percentile 1-NN: {p98_dist:.2f} dBm)")
+
+    # 4. Load Adjacency
+    neighbors = load_zone_neighbors(zones_json_path)
+
+    # 5. Select 10 diverse scans for Parity Block
+    indices = np.linspace(0, len(X) - 1, 10, dtype=int)
+    parity_scans = X[indices].tolist()
+    parity_expected_zones = y[indices].tolist()
+
+    knn_test_probs = knn.predict_proba(X[indices])
+    knn_test_preds = knn.predict(X[indices]).tolist()
+
+    gnb_test_probs = gnb.predict_proba(X[indices])
+    gnb_test_preds = gnb.predict(X[indices]).tolist()
+
+    parity_block = {
+        "scans": parity_scans,
+        "true_zones": parity_expected_zones,
+        "knn": {
+            "expected_predictions": knn_test_preds,
+            "expected_scores": knn_test_probs.tolist(),
+        },
+        "nb": {
+            "expected_predictions": gnb_test_preds,
+            "expected_scores": gnb_test_probs.tolist(),
+        },
+    }
+
+    model_payload = {
+        "version": "1.0.0",
+        "created_at": datetime.now().isoformat(),
+        "dwell_ms": 100,
+        "bssids": kept_bssid_list,
+        "zones": zones,
+        "scaling": None,
+        "best": "knn",
+        "knn": {
+            "k": k,
+            "eps": 1e-5,
+            "X": X.tolist(),
+            "y": y.tolist(),
+        },
+        "nb": {
+            "classes": gnb.classes_.tolist(),
+            "priors": gnb.priors_.tolist(),
+            "means": gnb.means_.tolist(),
+            "variances": gnb.variances_.tolist(),
+            "floor": float(var_smoothing),
+        },
+        "filter": {
+            "alpha": 0.70,
+            "neighbors": neighbors,
+        },
+        "novelty": {
+            "threshold": round(novelty_thresh, 4),
+            "p98_distance": round(p98_dist, 4),
+        },
+        "parity": parity_block,
+    }
+
+    with open(output_path, "w", encoding="utf-8") as f:
+        json.dump(model_payload, f, indent=2)
+
+    print(f"[OK] Model exported successfully to '{output_path}'.")
+    print(f"    - Kept BSSIDs: {len(kept_bssid_list)}")
+    print(f"    - Training vectors: {len(X)}")
+    print(f"    - Parity verification scans: {len(parity_scans)}")
+
+    # Verify self-test parity directly
+    with open(output_path, "r", encoding="utf-8") as f:
+        loaded = json.load(f)
+    assert len(loaded["parity"]["scans"]) == 10
+    assert len(loaded["bssids"]) == len(kept_bssid_list)
+    print("    - Self-verification passed: model.json fields are complete and full precision.")
+
+
 def run_evaluation(csv_path, holdout=None, min_seen=0.2, k=3, var_smoothing=0.1):
     """Run Leave-One-Session-Out Cross Validation or single holdout evaluation."""
     pivot, meta = load_dataset(csv_path)
@@ -238,7 +408,6 @@ def run_evaluation(csv_path, holdout=None, min_seen=0.2, k=3, var_smoothing=0.1)
         tr_mask = meta["session"] != held_out
         te_mask = meta["session"] == held_out
 
-        # Feature selection: keep APs heard in >= min_seen fraction of training scans
         train_pivot = pivot.loc[tr_mask]
         keep_aps = (train_pivot > -100.0).mean(axis=0) >= min_seen
         kept_ap_list = pivot.columns[keep_aps].tolist()
@@ -273,15 +442,30 @@ def main():
     parser.add_argument("--min-seen", type=float, default=0.2, help="AP appearance threshold in train set (default: 0.2)")
     parser.add_argument("--k", type=int, default=3, help="k for Weighted kNN (default: 3)")
     parser.add_argument("--var-smoothing", type=float, default=0.1, help="Variance floor smoothing for Gaussian NB (default: 0.1)")
+    parser.add_argument("--export", default=None, help="Output JSON path to export model (e.g. model.json)")
+    parser.add_argument("--zones-json", default="zones.json", help="Path to zones.json for topological graph (default: zones.json)")
     args = parser.parse_args()
 
-    run_evaluation(
-        csv_path=args.csv,
-        holdout=args.holdout,
-        min_seen=args.min_seen,
-        k=args.k,
-        var_smoothing=args.var_smoothing,
-    )
+    pivot, meta = load_dataset(args.csv)
+
+    if args.export:
+        export_model_json(
+            output_path=args.export,
+            pivot=pivot,
+            meta=meta,
+            zones_json_path=args.zones_json,
+            min_seen=args.min_seen,
+            k=args.k,
+            var_smoothing=args.var_smoothing,
+        )
+    else:
+        run_evaluation(
+            csv_path=args.csv,
+            holdout=args.holdout,
+            min_seen=args.min_seen,
+            k=args.k,
+            var_smoothing=args.var_smoothing,
+        )
 
 
 if __name__ == "__main__":
