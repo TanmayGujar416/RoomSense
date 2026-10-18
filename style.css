@@ -213,6 +213,70 @@ svg#floorMap {
   transition: width 0.2s ease;
 }
 
+/* Model & Live Tracking Card */
+.model-banner {
+  padding: 0.65rem 0.85rem;
+  border-radius: 8px;
+  font-size: 0.8rem;
+  margin: 0.6rem 0;
+  background: #f1f5f9;
+  color: #475569;
+  border: 1px dashed var(--border);
+  line-height: 1.4;
+}
+
+.model-banner.pass {
+  background: var(--success-bg);
+  color: var(--success);
+  border: 1px solid #86efac;
+  font-weight: 600;
+}
+
+.model-banner.fail {
+  background: var(--danger-bg);
+  color: var(--danger);
+  border: 1px solid #fca5a5;
+  font-weight: 600;
+}
+
+.live-card {
+  border-left: 4px solid var(--primary);
+}
+
+.live-status-box {
+  background: #f8fafc;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.75rem;
+  margin-top: 0.6rem;
+}
+
+.live-room-title {
+  font-size: 1.25rem;
+  font-weight: 800;
+  color: var(--text);
+}
+
+/* Tracker Dot & Pulse Animation on SVG Map */
+.tracker-dot {
+  transition: cx 0.5s cubic-bezier(0.34, 1.4, 0.64, 1), cy 0.5s cubic-bezier(0.34, 1.4, 0.64, 1);
+}
+
+.pulse-ring {
+  animation: pulse-ring 1.8s infinite ease-in-out;
+}
+
+@keyframes pulse-ring {
+  0% { r: 6px; opacity: 0.9; }
+  50% { r: 13px; opacity: 0.25; }
+  100% { r: 6px; opacity: 0.9; }
+}
+
+.survey-marker {
+  pointer-events: none;
+  transition: opacity 0.2s ease;
+}
+
 /* Log */
 #log {
   height: 160px;
