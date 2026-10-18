@@ -149,7 +149,7 @@ function clearSessionScans(session) {
 // ==========================================
 async function loadZones() {
   try {
-    const res = await fetch("zones.json");
+    const res = await fetch("zones.json?v=" + Date.now());
     const data = await res.json();
     zonesData = data.zones;
     if (data.viewBox) {
