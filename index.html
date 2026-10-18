@@ -49,8 +49,14 @@
 
   <!-- Interactive Floor Map Card -->
   <div class="card">
+    <!-- Mode Tabs: Survey vs Live Tracking -->
+    <div class="mode-tabs">
+      <button id="tabSurvey" class="tab-btn active">📋 Survey Mode</button>
+      <button id="tabTracking" class="tab-btn">📡 Live Tracking</button>
+    </div>
+
     <div class="flex-between">
-      <strong>Flat Map</strong>
+      <strong id="mapCardTitle">Flat Map</strong>
       <span id="surveyStatusText" class="sub">Tap a room to select</span>
     </div>
 
@@ -60,76 +66,76 @@
       </svg>
     </div>
 
-    <div class="progress-bar-container">
-      <div id="progressBar" class="progress-fill"></div>
-    </div>
-
-    <div class="flex-between" style="margin-top: 0.8rem;">
-      <button id="btnStartSurvey" class="btn-primary" disabled style="flex: 1; margin-right: 0.5rem;">Start Zone Survey</button>
-      <button id="btnStopSurvey" class="btn-danger" disabled style="width: 90px;">Stop</button>
-    </div>
-
-    <div id="zoneGrid" class="zone-grid">
-      <!-- Zone selection buttons generated dynamically -->
-    </div>
-  </div>
-
-  <!-- Live Positioning & Model Card (Task 4) -->
-  <div class="card live-card">
-    <div class="flex-between" style="margin-bottom: 0.6rem;">
-      <div>
-        <strong>Live Positioning & Model</strong>
-        <span class="sub block">Load trained model.json for real-time tracking</span>
+    <!-- 1. SURVEY MODE SECTION -->
+    <div id="surveySection">
+      <div class="progress-bar-container">
+        <div id="progressBar" class="progress-fill"></div>
       </div>
-      <div>
-        <input type="file" id="modelFileInput" accept=".json" style="display: none;">
-        <button id="btnLoadModel" class="btn-primary" style="font-size: 0.8rem; padding: 0.4rem 0.8rem;">📁 Load model.json</button>
+
+      <div class="flex-between" style="margin-top: 0.8rem;">
+        <button id="btnStartSurvey" class="btn-primary" disabled style="flex: 1; margin-right: 0.5rem;">Start Zone Survey</button>
+        <button id="btnStopSurvey" class="btn-danger" disabled style="width: 90px;">Stop</button>
+      </div>
+
+      <div id="zoneGrid" class="zone-grid">
+        <!-- Zone selection buttons generated dynamically -->
       </div>
     </div>
 
-    <!-- Parity & Model Status Banner -->
-    <div id="modelStatusBanner" class="model-banner">
-      No model loaded. Export <code>model.json</code> on laptop and load here.
-    </div>
-
-    <!-- Tracking Configuration -->
-    <div class="flex-between" style="font-size: 0.85rem; margin: 0.6rem 0;">
-      <div>
-        <label for="modelEngineSelect"><strong>Model:</strong></label>
-        <select id="modelEngineSelect" style="padding: 0.3rem 0.5rem; border-radius: 6px; border: 1px solid var(--border);">
-          <option value="knn">Weighted kNN (k=3)</option>
-          <option value="nb">Gaussian Naive Bayes</option>
-        </select>
-      </div>
-      <div>
-        <label style="cursor: pointer; display: flex; align-items: center; gap: 0.3rem;">
-          <input type="checkbox" id="beliefFilterToggle" checked>
-          <span>Movement Filter</span>
-        </label>
-      </div>
-    </div>
-
-    <!-- Tracking Stream Controls -->
-    <div class="flex-between" style="margin-top: 0.6rem;">
-      <button id="btnStartTracking" class="btn-success" disabled style="flex: 1; margin-right: 0.5rem;">▶ Start Live Tracking</button>
-      <button id="btnStopTracking" class="btn-danger" disabled style="width: 100px;">⏹ Stop</button>
-    </div>
-
-    <!-- Live Position Status Box -->
-    <div class="live-status-box">
-      <div class="flex-between">
+    <!-- 2. LIVE TRACKING MODE SECTION (Directly under the Map!) -->
+    <div id="trackingSection" style="display: none; margin-top: 0.8rem;">
+      <div class="flex-between" style="margin-bottom: 0.5rem;">
+        <span class="sub"><strong>Model & Tracking:</strong></span>
         <div>
-          <span class="sub block">Current Location:</span>
-          <div id="liveRoomDisplay" class="live-room-title">—</div>
-        </div>
-        <div style="text-align: right;">
-          <span class="sub block">Confidence:</span>
-          <strong id="liveConfidenceDisplay" style="color: var(--primary);">—</strong>
+          <input type="file" id="modelFileInput" accept=".json" style="display: none;">
+          <button id="btnLoadModel" class="btn-primary" style="font-size: 0.8rem; padding: 0.35rem 0.75rem;">📁 Load model.json</button>
         </div>
       </div>
-      <div class="flex-between" style="margin-top: 0.4rem; font-size: 0.75rem; color: var(--text-muted);">
-        <span id="liveNoveltyDisplay">Novelty: —</span>
-        <span id="liveFilterStatus">Filter: Active</span>
+
+      <!-- Parity & Model Status Banner -->
+      <div id="modelStatusBanner" class="model-banner">
+        No model loaded. Export <code>model.json</code> on laptop and load here.
+      </div>
+
+      <!-- Tracking Configuration -->
+      <div class="flex-between" style="font-size: 0.85rem; margin: 0.6rem 0;">
+        <div>
+          <label for="modelEngineSelect"><strong>Model:</strong></label>
+          <select id="modelEngineSelect" style="padding: 0.3rem 0.5rem; border-radius: 6px; border: 1px solid var(--border);">
+            <option value="knn">Weighted kNN (k=3)</option>
+            <option value="nb">Gaussian Naive Bayes</option>
+          </select>
+        </div>
+        <div>
+          <label style="cursor: pointer; display: flex; align-items: center; gap: 0.3rem;">
+            <input type="checkbox" id="beliefFilterToggle" checked>
+            <span>Movement Filter</span>
+          </label>
+        </div>
+      </div>
+
+      <!-- Tracking Stream Controls -->
+      <div class="flex-between" style="margin-top: 0.6rem;">
+        <button id="btnStartTracking" class="btn-success" disabled style="flex: 1; margin-right: 0.5rem;">▶ Start Live Tracking</button>
+        <button id="btnStopTracking" class="btn-danger" disabled style="width: 100px;">⏹ Stop</button>
+      </div>
+
+      <!-- Live Position Status Box -->
+      <div class="live-status-box">
+        <div class="flex-between">
+          <div>
+            <span class="sub block">Current Location:</span>
+            <div id="liveRoomDisplay" class="live-room-title">—</div>
+          </div>
+          <div style="text-align: right;">
+            <span class="sub block">Confidence:</span>
+            <strong id="liveConfidenceDisplay" style="color: var(--primary); font-size: 1.15rem;">—</strong>
+          </div>
+        </div>
+        <div class="flex-between" style="margin-top: 0.4rem; font-size: 0.75rem; color: var(--text-muted);">
+          <span id="liveNoveltyDisplay">Novelty: —</span>
+          <span id="liveFilterStatus">Filter: Active</span>
+        </div>
       </div>
     </div>
   </div>

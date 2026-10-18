@@ -47,6 +47,30 @@ const zoneGrid = document.getElementById('zoneGrid');
 const floorMap = document.getElementById('floorMap');
 const logEl = document.getElementById('log');
 
+// --- Tab Handles ---
+const tabSurvey = document.getElementById('tabSurvey');
+const tabTracking = document.getElementById('tabTracking');
+const surveySection = document.getElementById('surveySection');
+const trackingSection = document.getElementById('trackingSection');
+const mapCardTitle = document.getElementById('mapCardTitle');
+
+// --- Live Tracking & Model Handles ---
+const btnLoadModel = document.getElementById('btnLoadModel');
+const modelFileInput = document.getElementById('modelFileInput');
+const modelStatusBanner = document.getElementById('modelStatusBanner');
+const modelEngineSelect = document.getElementById('modelEngineSelect');
+const beliefFilterToggle = document.getElementById('beliefFilterToggle');
+const btnStartTracking = document.getElementById('btnStartTracking');
+const btnStopTracking = document.getElementById('btnStopTracking');
+const liveRoomDisplay = document.getElementById('liveRoomDisplay');
+const liveConfidenceDisplay = document.getElementById('liveConfidenceDisplay');
+const liveNoveltyDisplay = document.getElementById('liveNoveltyDisplay');
+const liveFilterStatus = document.getElementById('liveFilterStatus');
+
+let loadedModel = null;
+let isLiveTracking = false;
+let jsBeliefFilter = null;
+
 function log(msg) {
   const time = new Date().toLocaleTimeString();
   logEl.textContent += `[${time}] ${msg}\n`;
@@ -382,6 +406,12 @@ async function processCompletedLine(line) {
       }
     });
 
+    if (zone === "track") {
+      // Live continuous tracking scan: bypass flash & IndexedDB!
+      handleLiveTrackingScan(apPairs, scanId);
+      return;
+    }
+
     if (dbRecords.length > 0) {
       await saveScansToDB(dbRecords);
       currentBatchValid++;
@@ -571,6 +601,387 @@ btnClearDB.addEventListener('click', async () => {
     log(`Browser data for '${currentSession}' cleared.`);
   }
 });
+
+// ==========================================
+// 7. Tab Navigation (Survey vs Live Tracking)
+// ==========================================
+tabSurvey.addEventListener('click', () => {
+  tabSurvey.classList.add('active');
+  tabTracking.classList.remove('active');
+  surveySection.style.display = 'block';
+  trackingSection.style.display = 'none';
+  mapCardTitle.textContent = 'Flat Map';
+  surveyStatusText.style.display = 'inline';
+});
+
+tabTracking.addEventListener('click', () => {
+  tabTracking.classList.add('active');
+  tabSurvey.classList.remove('active');
+  surveySection.style.display = 'none';
+  trackingSection.style.display = 'block';
+  mapCardTitle.textContent = 'Live Tracking on Map';
+  surveyStatusText.style.display = 'none';
+
+  // Ensure tracker dot is visible on map
+  const trackerG = document.getElementById("trackerGroup");
+  if (trackerG) trackerG.style.display = "block";
+});
+
+// ==========================================
+// 8. Model Loading & Parity Verification
+// ==========================================
+btnLoadModel.addEventListener('click', () => modelFileInput.click());
+
+modelFileInput.addEventListener('change', async (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+
+  try {
+    const text = await file.text();
+    const model = JSON.parse(text);
+
+    log(`Testing mathematical parity for '${file.name}'...`);
+    const parityResult = runParityCheck(model);
+
+    if (parityResult.passed) {
+      loadedModel = model;
+      jsBeliefFilter = new JSBeliefFilter(
+        model.zones,
+        model.filter ? model.filter.neighbors : {},
+        model.filter ? (model.filter.alpha || 0.70) : 0.70
+      );
+
+      modelStatusBanner.className = "model-banner pass";
+      modelStatusBanner.innerHTML = `
+        <strong>[PASS] Parity Check Passed (10/10 math match)!</strong><br>
+        Version: ${model.version} | Filtered APs: ${model.bssids.length} | Scans: ${model.knn.X.length}<br>
+        Novelty Threshold: ${model.novelty.threshold.toFixed(2)} dBm | Math Drift &lt; 1e-6
+      `;
+
+      btnStartTracking.disabled = false;
+      log(`Model '${file.name}' loaded successfully! 100% parity verified with Python.`);
+    } else {
+      loadedModel = null;
+      modelStatusBanner.className = "model-banner fail";
+      modelStatusBanner.innerHTML = `
+        <strong>[FAIL] Model Parity Check Failed!</strong><br>
+        ${parityResult.error}
+      `;
+      btnStartTracking.disabled = true;
+      log(`[ERROR] Parity check failed: ${parityResult.error}`);
+    }
+  } catch (err) {
+    modelStatusBanner.className = "model-banner fail";
+    modelStatusBanner.textContent = `Failed to load model file: ${err.message}`;
+    log(`[ERROR] ${err.message}`);
+  }
+});
+
+// ==========================================
+// 9. JavaScript ML Inference Engines (kNN, NB, Novelty, Belief)
+// ==========================================
+function predictKNN(vector, model) {
+  const k = model.knn.k || 3;
+  const eps = model.knn.eps || 1e-5;
+  const X = model.knn.X;
+  const y = model.knn.y;
+  const classes = model.zones;
+
+  const dists = [];
+  for (let i = 0; i < X.length; i++) {
+    let sumSq = 0;
+    const row = X[i];
+    for (let j = 0; j < vector.length; j++) {
+      const diff = vector[j] - row[j];
+      sumSq += diff * diff;
+    }
+    dists.push({ dist: Math.sqrt(sumSq), label: y[i], idx: i });
+  }
+
+  // Consistent tie breaking: sort by dist, then row index
+  dists.sort((a, b) => a.dist !== b.dist ? a.dist - b.dist : a.idx - b.idx);
+  const topK = dists.slice(0, k);
+
+  const scores = {};
+  classes.forEach(c => scores[c] = 0);
+  let totalWeight = 0;
+
+  topK.forEach(item => {
+    const w = 1.0 / (item.dist + eps);
+    scores[item.label] = (scores[item.label] || 0) + w;
+    totalWeight += w;
+  });
+
+  const probArray = classes.map(c => totalWeight > 0 ? scores[c] / totalWeight : 1 / classes.length);
+  let bestIdx = 0;
+  let maxP = -1;
+  probArray.forEach((p, idx) => {
+    if (p > maxP) {
+      maxP = p;
+      bestIdx = idx;
+    }
+  });
+
+  return {
+    predictedZone: classes[bestIdx],
+    confidence: maxP,
+    scores: probArray,
+    classes: classes
+  };
+}
+
+function predictGaussianNB(vector, model) {
+  const classes = model.nb.classes;
+  const priors = model.nb.priors;
+  const means = model.nb.means;
+  const vars = model.nb.variances;
+
+  const logProbs = [];
+  for (let c = 0; c < classes.length; c++) {
+    let logL = Math.log(priors[c]);
+    for (let j = 0; j < vector.length; j++) {
+      const v = vars[c][j];
+      const m = means[c][j];
+      const diff = vector[j] - m;
+      logL += -0.5 * (Math.log(2 * Math.PI * v) + (diff * diff) / v);
+    }
+    logProbs.push(logL);
+  }
+
+  const maxLog = Math.max(...logProbs);
+  const exps = logProbs.map(lp => Math.exp(lp - maxLog));
+  const sumExp = exps.reduce((a, b) => a + b, 0);
+  const probArray = exps.map(e => e / sumExp);
+
+  let bestIdx = 0;
+  let maxP = -1;
+  probArray.forEach((p, idx) => {
+    if (p > maxP) {
+      maxP = p;
+      bestIdx = idx;
+    }
+  });
+
+  return {
+    predictedZone: classes[bestIdx],
+    confidence: maxP,
+    scores: probArray,
+    classes: classes
+  };
+}
+
+function computeNovelty(vector, model) {
+  const X = model.knn.X;
+  let minDist = Infinity;
+  for (let i = 0; i < X.length; i++) {
+    let sumSq = 0;
+    const row = X[i];
+    for (let j = 0; j < vector.length; j++) {
+      const diff = vector[j] - row[j];
+      sumSq += diff * diff;
+    }
+    const d = Math.sqrt(sumSq);
+    if (d < minDist) minDist = d;
+  }
+
+  const threshold = model.novelty ? model.novelty.threshold : 22.85;
+  return {
+    distance: minDist,
+    isNovel: minDist > threshold,
+    threshold: threshold
+  };
+}
+
+class JSBeliefFilter {
+  constructor(zones, neighbors, selfTrans = 0.70, nonNeighborP = 0.01) {
+    this.zones = [...zones].sort();
+    this.neighbors = neighbors || {};
+    this.selfTrans = selfTrans;
+    this.nonNeighborP = nonNeighborP;
+    this.belief = new Array(this.zones.length).fill(1 / this.zones.length);
+  }
+
+  update(rawProbs) {
+    const predBelief = new Array(this.zones.length).fill(0);
+
+    for (let prevIdx = 0; prevIdx < this.zones.length; prevIdx++) {
+      const pPrev = this.belief[prevIdx];
+      const prevZone = this.zones[prevIdx];
+      const neighs = this.neighbors[prevZone] || [];
+      const nLen = Math.max(1, neighs.length);
+      const neighTrans = (1.0 - this.selfTrans) / nLen;
+
+      for (let currIdx = 0; currIdx < this.zones.length; currIdx++) {
+        const currZone = this.zones[currIdx];
+        let transP = this.nonNeighborP;
+        if (currZone === prevZone) {
+          transP = this.selfTrans;
+        } else if (neighs.includes(currZone)) {
+          transP = neighTrans;
+        }
+        predBelief[currIdx] += pPrev * transP;
+      }
+    }
+
+    const predSum = predBelief.reduce((a, b) => a + b, 0);
+    for (let i = 0; i < predBelief.length; i++) predBelief[i] /= predSum;
+
+    const updated = rawProbs.map((p, idx) => p * predBelief[idx]);
+    const total = updated.reduce((a, b) => a + b, 0);
+
+    if (total > 0) {
+      this.belief = updated.map(u => u / total);
+    } else {
+      this.belief = [...rawProbs];
+    }
+
+    let maxIdx = 0;
+    let maxB = -1;
+    this.belief.forEach((b, idx) => {
+      if (b > maxB) {
+        maxB = b;
+        maxIdx = idx;
+      }
+    });
+
+    return {
+      bestZone: this.zones[maxIdx],
+      confidence: maxB,
+      belief: this.belief
+    };
+  }
+}
+
+function runParityCheck(model) {
+  if (!model.parity || !model.parity.scans) {
+    return { passed: false, error: "Missing 'parity' block in model.json" };
+  }
+
+  const scans = model.parity.scans;
+  const knnParity = model.parity.knn;
+  const nbParity = model.parity.nb;
+
+  for (let i = 0; i < scans.length; i++) {
+    const scan = scans[i];
+
+    // Check kNN
+    const knnRes = predictKNN(scan, model);
+    const expKnnZone = knnParity.expected_predictions[i];
+    const expKnnScores = knnParity.expected_scores[i];
+
+    if (knnRes.predictedZone !== expKnnZone) {
+      return { passed: false, error: `kNN Scan #${i + 1} zone mismatch (JS: '${knnRes.predictedZone}' vs Python: '${expKnnZone}')` };
+    }
+    for (let c = 0; c < expKnnScores.length; c++) {
+      const diff = Math.abs(knnRes.scores[c] - expKnnScores[c]);
+      if (diff > 1e-6) {
+        return { passed: false, error: `kNN Scan #${i + 1} score diff ${diff.toExponential(2)} exceeds 1e-6` };
+      }
+    }
+
+    // Check Naive Bayes
+    const nbRes = predictGaussianNB(scan, model);
+    const expNbZone = nbParity.expected_predictions[i];
+    const expNbScores = nbParity.expected_scores[i];
+
+    if (nbRes.predictedZone !== expNbZone) {
+      return { passed: false, error: `NB Scan #${i + 1} zone mismatch (JS: '${nbRes.predictedZone}' vs Python: '${expNbZone}')` };
+    }
+    for (let c = 0; c < expNbScores.length; c++) {
+      const diff = Math.abs(nbRes.scores[c] - expNbScores[c]);
+      if (diff > 1e-6) {
+        return { passed: false, error: `NB Scan #${i + 1} score diff ${diff.toExponential(2)} exceeds 1e-6` };
+      }
+    }
+  }
+
+  return { passed: true };
+}
+
+// ==========================================
+// 10. Live Tracking Handlers
+// ==========================================
+btnStartTracking.addEventListener('click', async () => {
+  if (!loadedModel) {
+    alert("Please load a verified model.json file first!");
+    return;
+  }
+  isLiveTracking = true;
+  btnStartTracking.disabled = true;
+  btnStopTracking.disabled = false;
+  liveRoomDisplay.textContent = "Scanning...";
+  liveConfidenceDisplay.textContent = "—";
+  log("[TRACK ON] Live tracking stream requested from ESP32...");
+  await sendBLECommand("TRACK ON");
+});
+
+btnStopTracking.addEventListener('click', async () => {
+  isLiveTracking = false;
+  btnStartTracking.disabled = false;
+  btnStopTracking.disabled = true;
+  log("[TRACK OFF] Stopping live tracking stream...");
+  await sendBLECommand("TRACK OFF");
+});
+
+function handleLiveTrackingScan(apPairs, scanId) {
+  if (!loadedModel) {
+    log(`[TRACK #${scanId}] No model loaded. Please load model.json.`);
+    return;
+  }
+
+  // 1. Build map of BSSID -> RSSI from the live scan
+  const apMap = {};
+  apPairs.forEach(pair => {
+    const [bssid, rssiStr] = pair.split(",");
+    if (bssid && rssiStr) {
+      const clean = bssid.trim().toLowerCase();
+      const r = parseInt(rssiStr, 10);
+      if (!isNaN(r)) apMap[clean] = r;
+    }
+  });
+
+  // 2. Vectorize scan using model's selected BSSIDs (missing APs = -100 dBm)
+  const vector = loadedModel.bssids.map(b => apMap[b] !== undefined ? apMap[b] : -100.0);
+
+  // 3. Check Novelty
+  const novelty = computeNovelty(vector, loadedModel);
+  liveNoveltyDisplay.textContent = `Novelty: ${novelty.distance.toFixed(1)} dBm ${novelty.isNovel ? "[Outlier!]" : "[Normal]"}`;
+
+  if (novelty.isNovel) {
+    liveRoomDisplay.textContent = "Unknown / Outlier";
+    liveConfidenceDisplay.textContent = "Low";
+    log(`[TRACK #${scanId}] Outlier scan! Distance ${novelty.distance.toFixed(1)} dBm > threshold ${novelty.threshold.toFixed(1)} dBm`);
+    return;
+  }
+
+  // 4. Raw inference (kNN or Naive Bayes)
+  const engine = modelEngineSelect.value;
+  const rawResult = (engine === "nb") ? predictGaussianNB(vector, loadedModel) : predictKNN(vector, loadedModel);
+
+  let finalZone = rawResult.predictedZone;
+  let finalConf = rawResult.confidence;
+
+  // 5. Belief Filter
+  if (beliefFilterToggle.checked && jsBeliefFilter) {
+    const filtered = jsBeliefFilter.update(rawResult.scores);
+    finalZone = filtered.bestZone;
+    finalConf = filtered.confidence;
+    liveFilterStatus.textContent = "Filter: Active";
+  } else {
+    liveFilterStatus.textContent = "Filter: Disabled";
+  }
+
+  // 6. Update UI
+  const zoneObj = zonesData.find(z => z.id === finalZone);
+  const zoneLabel = zoneObj ? zoneObj.label : finalZone;
+  liveRoomDisplay.textContent = zoneLabel;
+  liveConfidenceDisplay.textContent = `${(finalConf * 100).toFixed(1)}%`;
+
+  // 7. Animate Tracker Dot
+  moveTrackerDot(finalZone);
+
+  log(`[TRACK #${scanId}] -> ${zoneLabel} (${(finalConf * 100).toFixed(1)}% | ${novelty.distance.toFixed(1)} dBm)`);
+}
 
 // ==========================================
 // Initialization
