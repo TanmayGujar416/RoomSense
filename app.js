@@ -152,16 +152,20 @@ async function loadZones() {
     const res = await fetch("zones.json");
     const data = await res.json();
     zonesData = data.zones;
+    if (data.viewBox) {
+      floorMap.setAttribute("viewBox", data.viewBox);
+    }
   } catch (err) {
     // Fallback if local fetch fails
     zonesData = [
-      { id: "outside", label: "Outside", x: 20, y: 80, w: 60, h: 30, neighbors: ["passage"] },
-      { id: "passage", label: "Passage", x: 100, y: 20, w: 40, h: 90, neighbors: ["outside", "hall", "kitchen", "storage", "router"] },
-      { id: "kitchen", label: "Kitchen", x: 20, y: 20, w: 60, h: 45, neighbors: ["passage"] },
-      { id: "storage", label: "Storage", x: 160, y: 80, w: 50, h: 30, neighbors: ["passage"] },
-      { id: "hall", label: "Hall", x: 160, y: 20, w: 90, h: 45, neighbors: ["passage", "router"] },
-      { id: "router", label: "Router", x: 270, y: 20, w: 40, h: 45, neighbors: ["hall", "passage"] }
+      { id: "storage", label: "Storage", x: 15, y: 15, w: 70, h: 65, marker: { x: 48, y: 32 }, neighbors: ["passage"] },
+      { id: "kitchen", label: "Kitchen", x: 87, y: 15, w: 60, h: 113, marker: { x: 120, y: 45 }, neighbors: ["passage"] },
+      { id: "hall", label: "Hall", x: 149, y: 15, w: 196, h: 143, marker: { x: 265, y: 80 }, neighbors: ["passage", "router"] },
+      { id: "passage", label: "Passage", x: 15, y: 82, w: 132, h: 76, path: "M 15 82 L 85 82 L 85 130 L 147 130 L 147 158 L 15 158 Z", marker: { x: 66, y: 115 }, neighbors: ["outside", "hall", "kitchen", "storage", "router"] },
+      { id: "router", label: "Router Spot", x: 156, y: 128, w: 42, h: 28, marker: { x: 177, y: 142 }, neighbors: ["hall", "passage"] },
+      { id: "outside", label: "Outside / Entrance", x: 280, y: 160, w: 65, h: 85, marker: { x: 334, y: 172 }, neighbors: ["passage"] }
     ];
+    floorMap.setAttribute("viewBox", "0 0 360 255");
   }
   renderFloorMap();
   await refreshZoneUI();
@@ -174,29 +178,86 @@ function renderFloorMap() {
     const g = document.createElementNS("http://www.w3.org/2000/svg", "g");
     g.setAttribute("id", `map-group-${z.id}`);
 
-    // Zone Rect
-    const rect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
-    rect.setAttribute("id", `map-rect-${z.id}`);
-    rect.setAttribute("class", "zone-rect");
-    rect.setAttribute("x", z.x);
-    rect.setAttribute("y", z.y);
-    rect.setAttribute("width", z.w);
-    rect.setAttribute("height", z.h);
-    rect.setAttribute("rx", "4");
+    // Zone shape: path (for L-corridor) or rect
+    let shape;
+    if (z.path) {
+      shape = document.createElementNS("http://www.w3.org/2000/svg", "path");
+      shape.setAttribute("d", z.path);
+    } else {
+      shape = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+      shape.setAttribute("x", z.x);
+      shape.setAttribute("y", z.y);
+      shape.setAttribute("width", z.w);
+      shape.setAttribute("height", z.h);
+      shape.setAttribute("rx", "5");
+    }
 
-    rect.addEventListener('click', () => selectZone(z.id));
+    shape.setAttribute("id", `map-rect-${z.id}`);
+    shape.setAttribute("class", "zone-rect");
+    shape.addEventListener('click', () => selectZone(z.id));
+    g.appendChild(shape);
 
-    // Label
+    // Label coordinates
+    let textX = z.marker ? z.marker.x : z.x + z.w / 2;
+    let textY = z.y + z.h / 2;
+    if (z.id === "storage") { textX = 50; textY = 52; }
+    else if (z.id === "kitchen") { textX = 117; textY = 75; }
+    else if (z.id === "hall") { textX = 247; textY = 85; }
+    else if (z.id === "passage") { textX = 50; textY = 132; }
+    else if (z.id === "router") { textX = 177; textY = 146; }
+    else if (z.id === "outside") { textX = 312; textY = 210; }
+
     const text = document.createElementNS("http://www.w3.org/2000/svg", "text");
     text.setAttribute("class", "zone-label");
-    text.setAttribute("x", z.x + z.w / 2);
-    text.setAttribute("y", z.y + z.h / 2 + 2);
+    text.setAttribute("x", textX);
+    text.setAttribute("y", textY);
     text.textContent = z.label;
-
-    g.appendChild(rect);
     g.appendChild(text);
+
+    // Survey Point Marker Dot
+    if (z.marker) {
+      const marker = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+      marker.setAttribute("class", "survey-marker");
+      marker.setAttribute("id", `marker-${z.id}`);
+      marker.setAttribute("cx", z.marker.x);
+      marker.setAttribute("cy", z.marker.y);
+      marker.setAttribute("r", "3.5");
+      marker.setAttribute("fill", "#e11d48");
+      marker.setAttribute("stroke", "#ffffff");
+      marker.setAttribute("stroke-width", "1.2");
+      g.appendChild(marker);
+    }
+
     floorMap.appendChild(g);
   });
+
+  // Animated Live Tracker Dot Group
+  const trackerG = document.createElementNS("http://www.w3.org/2000/svg", "g");
+  trackerG.setAttribute("id", "trackerGroup");
+  trackerG.style.display = "none";
+  trackerG.innerHTML = `
+    <circle id="pulseRing" class="tracker-dot pulse-ring" cx="0" cy="0" r="10" fill="none" stroke="var(--primary)" stroke-width="2" />
+    <circle id="trackerDot" class="tracker-dot" cx="0" cy="0" r="5.5" fill="var(--primary)" stroke="#ffffff" stroke-width="2" />
+  `;
+  floorMap.appendChild(trackerG);
+}
+
+function moveTrackerDot(zoneId) {
+  const z = zonesData.find(item => item.id === zoneId);
+  if (!z) return;
+  const trackerG = document.getElementById("trackerGroup");
+  const dot = document.getElementById("trackerDot");
+  const ring = document.getElementById("pulseRing");
+  if (!trackerG || !dot || !ring) return;
+
+  const targetX = z.marker ? z.marker.x : (z.x + z.w / 2);
+  const targetY = z.marker ? z.marker.y : (z.y + z.h / 2);
+
+  dot.setAttribute("cx", targetX);
+  dot.setAttribute("cy", targetY);
+  ring.setAttribute("cx", targetX);
+  ring.setAttribute("cy", targetY);
+  trackerG.style.display = "block";
 }
 
 async function refreshZoneUI() {
@@ -235,6 +296,7 @@ async function refreshZoneUI() {
 function selectZone(zoneId) {
   if (isSurveying) return;
   selectedZone = zoneId;
+  moveTrackerDot(zoneId);
   refreshZoneUI();
 }
 

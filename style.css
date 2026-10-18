@@ -141,12 +141,17 @@ svg#floorMap {
   stroke: #22c55e;
 }
 
+#map-rect-router {
+  stroke-dasharray: 3, 2;
+}
+
 .zone-label {
-  font-size: 7px;
-  font-weight: 600;
+  font-size: 11px;
+  font-weight: 700;
   fill: #334155;
   pointer-events: none;
   text-anchor: middle;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
 }
 
 /* Zone Buttons Grid */
