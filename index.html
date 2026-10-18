@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <title>RoomSense — Survey Dashboard</title>
-  <link rel="stylesheet" href="style.css?v=2">
+  <link rel="stylesheet" href="style.css?v=3">
 </head>
 <body>
   <header class="flex-between">
@@ -51,8 +51,8 @@
   <div class="card">
     <!-- Mode Tabs: Survey vs Live Tracking -->
     <div class="mode-tabs">
-      <button id="tabSurvey" class="tab-btn active">📋 Survey Mode</button>
-      <button id="tabTracking" class="tab-btn">📡 Live Tracking</button>
+      <button id="tabSurvey" class="tab-btn active" onclick="switchTab('survey')">📋 Survey Mode</button>
+      <button id="tabTracking" class="tab-btn" onclick="switchTab('tracking')">📡 Live Tracking</button>
     </div>
 
     <div class="flex-between">
@@ -149,6 +149,34 @@
     <div id="log">Console ready. Connect your ESP32 to start surveying.</div>
   </div>
 
-  <script src="app.js?v=2"></script>
+  <script>
+    function switchTab(tab) {
+      const tabSurvey = document.getElementById('tabSurvey');
+      const tabTracking = document.getElementById('tabTracking');
+      const surveySection = document.getElementById('surveySection');
+      const trackingSection = document.getElementById('trackingSection');
+      const mapCardTitle = document.getElementById('mapCardTitle');
+      const surveyStatusText = document.getElementById('surveyStatusText');
+
+      if (tab === 'survey') {
+        if (tabSurvey) tabSurvey.classList.add('active');
+        if (tabTracking) tabTracking.classList.remove('active');
+        if (surveySection) surveySection.style.display = 'block';
+        if (trackingSection) trackingSection.style.display = 'none';
+        if (mapCardTitle) mapCardTitle.textContent = 'Flat Map';
+        if (surveyStatusText) surveyStatusText.style.display = 'inline';
+      } else {
+        if (tabTracking) tabTracking.classList.add('active');
+        if (tabSurvey) tabSurvey.classList.remove('active');
+        if (surveySection) surveySection.style.display = 'none';
+        if (trackingSection) trackingSection.style.display = 'block';
+        if (mapCardTitle) mapCardTitle.textContent = 'Live Tracking on Map';
+        if (surveyStatusText) surveyStatusText.style.display = 'none';
+        const trackerG = document.getElementById("trackerGroup");
+        if (trackerG) trackerG.style.display = "block";
+      }
+    }
+  </script>
+  <script src="app.js?v=3"></script>
 </body>
 </html>
