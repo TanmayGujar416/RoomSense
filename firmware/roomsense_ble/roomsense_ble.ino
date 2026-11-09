@@ -28,6 +28,7 @@ bool deviceConnected = false;
 // Job request flags set by BLE onWrite callback
 volatile bool jobPending = false;
 volatile bool trackMode = false;
+bool serialStream = false;
 volatile bool statusRequested = false;
 volatile bool clearFlashRequested = false;
 char currentSession[32] = "session1";
@@ -139,16 +140,20 @@ class ServerCallbacks : public NimBLEServerCallbacks {
 
   void onDisconnect(NimBLEServer* pServer) {
     deviceConnected = false;
-    jobPending = false;
-    trackMode = false;
+    if (!serialStream) {
+      jobPending = false;
+      trackMode = false;
+    }
     Serial.println("[BLE] Phone disconnected, restarting advertising");
     NimBLEDevice::startAdvertising();
   }
 
   void onDisconnect(NimBLEServer* pServer, NimBLEConnInfo& connInfo, int reason) {
     deviceConnected = false;
-    jobPending = false;
-    trackMode = false;
+    if (!serialStream) {
+      jobPending = false;
+      trackMode = false;
+    }
     Serial.println("[BLE] Phone disconnected, restarting advertising");
     NimBLEDevice::startAdvertising();
   }
@@ -250,6 +255,10 @@ void performScanAndStream(const char* zone, int scanId) {
   String chk = calculateXORChecksum(payload);
   String completeLine = payload + "*" + chk + "\n";
 
+  if (serialStream) {
+    Serial.print(completeLine);
+  }
+
   sendBLEChunked(completeLine);
 
   // If this is a survey scan (not live tracking), log to LittleFS flash backup
@@ -262,6 +271,7 @@ void performScanAndStream(const char* zone, int scanId) {
 
 void setup() {
   Serial.begin(115200);
+  Serial.setTimeout(50);
   delay(1000);
   Serial.println("\n[RoomSense] Starting ESP32 Firmware...");
 
@@ -328,6 +338,23 @@ void setup() {
 }
 
 void loop() {
+  // Handle Serial commands
+  if (Serial.available()) {
+    String sCmd = Serial.readStringUntil('\n');
+    sCmd.trim();
+    if (sCmd.equalsIgnoreCase("STREAM ON")) {
+      serialStream = true;
+      trackMode = true;
+      jobPending = true;
+      strncpy(currentZone, "track", sizeof(currentZone));
+      currentScanIndex = 0;
+    } else if (sCmd.equalsIgnoreCase("STREAM OFF")) {
+      serialStream = false;
+      trackMode = false;
+      jobPending = false;
+    }
+  }
+
   // Handle asynchronous STATUS request in main loop context
   if (statusRequested && isClientConnected()) {
     statusRequested = false;
@@ -345,7 +372,7 @@ void loop() {
     Serial.println("[LittleFS] /survey.csv wiped.");
   }
 
-  if (jobPending && isClientConnected()) {
+  if (jobPending && (isClientConnected() || serialStream)) {
     if (trackMode) {
       // Continuous tracking mode
       performScanAndStream("track", currentScanIndex++);
