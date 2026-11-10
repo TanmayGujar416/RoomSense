@@ -1,0 +1,15 @@
+{
+  "default": "siteA",
+  "sites": [
+    {
+      "id": "siteA",
+      "name": "Old flat",
+      "zones": "sites/siteA/zones.json"
+    },
+    {
+      "id": "siteB",
+      "name": "New place",
+      "zones": "sites/siteB/zones.json"
+    }
+  ]
+}

@@ -1,0 +1,65 @@
+{
+  "viewBox": "0 0 500 720",
+  "zones": [
+    {
+      "id": "kitchen",
+      "label": "Kitchen",
+      "x": 247,
+      "y": 7,
+      "w": 200,
+      "h": 190,
+      "marker": { "x": 341, "y": 96 },
+      "neighbors": ["dining_room"]
+    },
+    {
+      "id": "bedroom",
+      "label": "Bedroom",
+      "x": 73,
+      "y": 197,
+      "w": 176,
+      "h": 221,
+      "marker": { "x": 155, "y": 322 },
+      "neighbors": ["dining_room"]
+    },
+    {
+      "id": "dining_room",
+      "label": "Dining Room",
+      "x": 249,
+      "y": 197,
+      "w": 198,
+      "h": 221,
+      "marker": { "x": 367, "y": 331 },
+      "neighbors": ["kitchen", "bedroom", "hall"]
+    },
+    {
+      "id": "storage",
+      "label": "Storage",
+      "x": 73,
+      "y": 418,
+      "w": 180,
+      "h": 162,
+      "marker": { "x": 152, "y": 506 },
+      "neighbors": ["hall"]
+    },
+    {
+      "id": "hall",
+      "label": "Hall",
+      "x": 253,
+      "y": 418,
+      "w": 194,
+      "h": 162,
+      "marker": { "x": 340, "y": 533 },
+      "neighbors": ["dining_room", "storage", "outside"]
+    },
+    {
+      "id": "outside",
+      "label": "Outside",
+      "x": 100,
+      "y": 610,
+      "w": 150,
+      "h": 80,
+      "marker": { "x": 139, "y": 649 },
+      "neighbors": ["hall"]
+    }
+  ]
+}
