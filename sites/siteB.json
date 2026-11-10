@@ -1,0 +1,19 @@
+{
+  "site": "siteB",
+  "rooms": [
+    "kitchen",
+    "dining_room",
+    "bedroom",
+    "storage",
+    "hall",
+    "outside"
+  ],
+  "adjacent": {
+    "kitchen": ["dining_room"],
+    "dining_room": ["kitchen", "bedroom", "hall"],
+    "bedroom": ["dining_room"],
+    "storage": ["hall"],
+    "hall": ["dining_room", "storage", "outside"],
+    "outside": ["hall"]
+  }
+}
