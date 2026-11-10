@@ -105,6 +105,19 @@ h1 {
 .badge-disconnected { background: var(--danger-bg); color: var(--danger); }
 .badge-working { background: var(--warning-bg); color: var(--warning); }
 
+.site-badge {
+  display: inline-block;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--primary);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  padding: 0.15rem 0.5rem;
+  border-radius: 6px;
+  vertical-align: middle;
+  margin-left: 0.4rem;
+}
+
 button {
   font-size: 0.9rem;
   font-weight: 600;

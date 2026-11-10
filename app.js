@@ -15,6 +15,8 @@ const DEFAULT_TARGET_SCANS = 25;
 
 // --- State ---
 let zonesData = [];
+let sitesConfig = [];
+let currentSiteId = "siteA";
 let db = null;
 let bleDevice = null;
 let commandChar = null;
@@ -30,6 +32,9 @@ let currentBatchValid = 0;
 let currentBatchTarget = 0;
 
 // --- DOM Handles ---
+const siteSelect = document.getElementById('siteSelect');
+const currentSiteBadge = document.getElementById('currentSiteBadge');
+const siteStatusText = document.getElementById('siteStatusText');
 const connBadge = document.getElementById('connBadge');
 const flashBadge = document.getElementById('flashBadge');
 const btnConnect = document.getElementById('btnConnect');
@@ -169,11 +174,121 @@ function clearSessionScans(session) {
 }
 
 // ==========================================
+// 1b. Site Management (Multi-Site Support)
+// ==========================================
+async function initSites() {
+  let sitesIndex = null;
+  try {
+    const res = await fetch("sites/index.json?v=" + Date.now());
+    if (res.ok) {
+      sitesIndex = await res.json();
+    }
+  } catch (err) {
+    console.warn("Could not fetch sites/index.json:", err);
+  }
+
+  if (sitesIndex && Array.isArray(sitesIndex.sites) && sitesIndex.sites.length > 0) {
+    sitesConfig = sitesIndex.sites;
+  } else {
+    sitesConfig = [
+      { id: "siteA", name: "Old flat", zones: "sites/siteA/zones.json" },
+      { id: "siteB", name: "New place", zones: "sites/siteB/zones.json" }
+    ];
+  }
+
+  // Populate dropdown
+  if (siteSelect) {
+    siteSelect.innerHTML = "";
+    sitesConfig.forEach(s => {
+      const opt = document.createElement("option");
+      opt.value = s.id;
+      opt.textContent = s.name;
+      siteSelect.appendChild(opt);
+    });
+  }
+
+  // 3. Remember the selected site in localStorage (key "roomsenseSite"). Wrap storage access in try/catch.
+  let savedSite = null;
+  try {
+    savedSite = localStorage.getItem("roomsenseSite");
+  } catch (e) {
+    console.warn("localStorage read failed:", e);
+  }
+
+  const defaultSiteId = (sitesIndex && sitesIndex.default) ? sitesIndex.default : "siteA";
+  currentSiteId = (savedSite && sitesConfig.some(s => s.id === savedSite)) ? savedSite : defaultSiteId;
+
+  if (siteSelect) {
+    siteSelect.value = currentSiteId;
+    siteSelect.addEventListener('change', async (e) => {
+      await changeSite(e.target.value);
+    });
+  }
+
+  await applySite(currentSiteId, false);
+}
+
+async function changeSite(siteId) {
+  try {
+    localStorage.setItem("roomsenseSite", siteId);
+  } catch (e) {
+    console.warn("localStorage write failed:", e);
+  }
+  await applySite(siteId, true);
+}
+
+async function applySite(siteId, isSwitch = false) {
+  currentSiteId = siteId;
+  const siteObj = sitesConfig.find(s => s.id === siteId) || sitesConfig[0];
+  const siteName = siteObj ? siteObj.name : siteId;
+
+  // 5. Show the current site name in the page title area.
+  if (currentSiteBadge) {
+    currentSiteBadge.textContent = siteName;
+  }
+  if (siteStatusText) {
+    siteStatusText.textContent = `Active site: ${siteName}`;
+  }
+
+  // 4. When the site changes, clear any loaded model (show "No model loaded for this site").
+  if (isSwitch) {
+    clearLoadedModel();
+    log(`Switched to site: '${siteName}' (${siteId})`);
+  }
+
+  const zonesFile = siteObj && siteObj.zones ? siteObj.zones : "zones.json";
+  await loadZones(zonesFile);
+}
+
+function clearLoadedModel() {
+  loadedModel = null;
+  jsBeliefFilter = null;
+  if (modelFileInput) modelFileInput.value = "";
+  if (modelStatusBanner) {
+    modelStatusBanner.className = "model-banner";
+    modelStatusBanner.innerHTML = 'No model loaded for this site. Export <code>model.json</code> on laptop and load here.';
+  }
+  if (btnStartTracking) btnStartTracking.disabled = true;
+  if (isLiveTracking) {
+    isLiveTracking = false;
+    if (btnStopTracking) btnStopTracking.disabled = true;
+    sendBLECommand("TRACK OFF");
+  }
+  if (liveRoomDisplay) liveRoomDisplay.textContent = "—";
+  if (liveConfidenceDisplay) liveConfidenceDisplay.textContent = "—";
+  if (liveNoveltyDisplay) liveNoveltyDisplay.textContent = "Novelty: —";
+  if (liveFilterStatus) liveFilterStatus.textContent = "Filter: Active";
+  const trackerG = document.getElementById("trackerGroup");
+  if (trackerG) trackerG.style.display = "none";
+}
+
+// ==========================================
 // 2. Zone Map & UI Rendering
 // ==========================================
-async function loadZones() {
+async function loadZones(zonesUrl = "zones.json") {
   try {
-    const res = await fetch("zones.json?v=" + Date.now());
+    const res = await fetch(zonesUrl + "?v=" + Date.now());
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json();
     zonesData = data.zones;
     if (data.viewBox) {
@@ -191,6 +306,11 @@ async function loadZones() {
     ];
     floorMap.setAttribute("viewBox", "0 0 360 255");
   }
+
+  if (!zonesData.some(z => z.id === selectedZone)) {
+    selectedZone = zonesData[0] ? zonesData[0].id : "kitchen";
+  }
+
   renderFloorMap();
   await refreshZoneUI();
 }
@@ -222,14 +342,16 @@ function renderFloorMap() {
     g.appendChild(shape);
 
     // Label coordinates
-    let textX = z.marker ? z.marker.x : z.x + z.w / 2;
+    let textX = z.x + z.w / 2;
     let textY = z.y + z.h / 2;
-    if (z.id === "storage") { textX = 50; textY = 52; }
-    else if (z.id === "kitchen") { textX = 117; textY = 75; }
-    else if (z.id === "hall") { textX = 247; textY = 85; }
-    else if (z.id === "passage") { textX = 50; textY = 132; }
-    else if (z.id === "router") { textX = 177; textY = 146; }
-    else if (z.id === "outside") { textX = 312; textY = 210; }
+    if (currentSiteId === "siteA") {
+      if (z.id === "storage") { textX = 50; textY = 52; }
+      else if (z.id === "kitchen") { textX = 117; textY = 75; }
+      else if (z.id === "hall") { textX = 247; textY = 85; }
+      else if (z.id === "passage") { textX = 50; textY = 132; }
+      else if (z.id === "router") { textX = 177; textY = 146; }
+      else if (z.id === "outside") { textX = 312; textY = 210; }
+    }
 
     const text = document.createElementNS("http://www.w3.org/2000/svg", "text");
     text.setAttribute("class", "zone-label");
@@ -988,6 +1110,6 @@ function handleLiveTrackingScan(apPairs, scanId) {
 // ==========================================
 window.addEventListener('DOMContentLoaded', async () => {
   await initDB();
-  await loadZones();
+  await initSites();
   log("RoomSense Survey Dashboard ready.");
 });

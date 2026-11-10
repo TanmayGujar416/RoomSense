@@ -9,7 +9,7 @@
 <body>
   <header class="flex-between">
     <div>
-      <h1>RoomSense</h1>
+      <h1>RoomSense <span id="currentSiteBadge" class="site-badge"></span></h1>
       <p class="sub">Wi-Fi RSSI Survey & Positioning</p>
     </div>
     <div>
@@ -20,6 +20,17 @@
 
   <!-- Connection & Session Card -->
   <div class="card">
+    <!-- Site Selector Row -->
+    <div class="flex-between" style="margin-bottom: 0.8rem; padding-bottom: 0.6rem; border-bottom: 1px solid var(--border);">
+      <div style="display: flex; align-items: center; gap: 0.5rem;">
+        <label for="siteSelect"><strong>Site:</strong></label>
+        <select id="siteSelect" style="padding: 0.35rem 0.6rem; border-radius: 6px; border: 1px solid var(--border); font-weight: 600;">
+          <!-- Loaded dynamically from sites/index.json -->
+        </select>
+      </div>
+      <span id="siteStatusText" class="sub" style="font-size: 0.85rem;"></span>
+    </div>
+
     <div class="flex-between" style="margin-bottom: 0.8rem;">
       <div>
         <button id="btnConnect" class="btn-primary">Connect Board</button>
